@@ -1,6 +1,7 @@
 #!/usr/bin/python
 import unittest
 import sys
+import os
 import gc
 
 from types import ModuleType
@@ -11,7 +12,8 @@ from mocker import (
     run_counter_recorder, run_counter_removal_recorder, MockReturner,
     mock_returner_recorder, FunctionRunner, Orderer, SpecChecker,
     spec_checker_recorder, match_params, ANY, VARIOUS, SAME, CONTAINS,
-    UnexpectedExprError, PathApplier, RECORD, REPLAY, RESTORE, ProxyInstaller)
+    ARGS, KWARGS, MatchError, PathExecuter, RECORD, REPLAY, RESTORE,
+    ProxyReplacer, Patcher, Undefined, PatchedMethod)
 
 
 class CleanMocker(MockerBase):
@@ -24,7 +26,7 @@ class IntegrationTest(unittest.TestCase):
         self.mocker = Mocker()
 
     def test_count(self):
-        obj = self.mocker.obj()
+        obj = self.mocker.mock()
         obj.x
         self.mocker.count(2, 3)
 
@@ -38,7 +40,7 @@ class IntegrationTest(unittest.TestCase):
         self.assertRaises(AssertionError, getattr, obj, "x")
 
     def test_ordered(self):
-        obj = self.mocker.obj()
+        obj = self.mocker.mock()
 
         with_manager = self.mocker.ordered()
         with_manager.__enter__()
@@ -56,11 +58,11 @@ class IntegrationTest(unittest.TestCase):
         obj.y
         obj.z
 
-    def test_spec(self):
+    def test_spec_and_type(self):
         class C(object):
             def m(self, a): pass
         
-        obj = self.mocker.obj(C)
+        obj = self.mocker.mock(C)
 
         obj.m(1)
         obj.m(a=1)
@@ -73,6 +75,8 @@ class IntegrationTest(unittest.TestCase):
 
         self.mocker.replay()
 
+        self.assertTrue(isinstance(obj, C))
+
         obj.m(1)
         obj.m(a=1)
         obj.y()
@@ -82,14 +86,14 @@ class IntegrationTest(unittest.TestCase):
         self.assertRaises(AssertionError, obj.z)
 
     def test_result(self):
-        obj = self.mocker.obj()
+        obj = self.mocker.mock()
         obj.x
         self.mocker.result(42)
         self.mocker.replay()
         self.assertEquals(obj.x, 42)
 
     def test_throw(self):
-        obj = self.mocker.obj()
+        obj = self.mocker.mock()
         obj.x()
         self.mocker.throw(ValueError)
         self.mocker.replay()
@@ -100,7 +104,7 @@ class IntegrationTest(unittest.TestCase):
         def func(arg):
             calls.append(arg)
             return 42
-        obj = self.mocker.obj()
+        obj = self.mocker.mock()
         obj.x(24)
         self.mocker.call(func)
         self.mocker.replay()
@@ -112,7 +116,7 @@ class IntegrationTest(unittest.TestCase):
         def func(arg):
             calls.append(arg)
             return arg
-        obj = self.mocker.obj()
+        obj = self.mocker.mock()
         obj.x(24)
         self.mocker.call(func)
         self.mocker.result(42)
@@ -126,7 +130,7 @@ class IntegrationTest(unittest.TestCase):
                 return sum(args)
         
         obj = self.mocker.proxy(C())
-        expect(obj.multiply(2, 3)).result(6)
+        expect(obj.multiply(2, 3)).result(6).nospec()
         expect(obj.sum(0, 0)).result(1)
         expect(obj.sum(0, 0)).passthrough()
 
@@ -140,9 +144,9 @@ class IntegrationTest(unittest.TestCase):
         self.assertEquals(obj.sum(0, 0), 0) # Passed through explicitly.
         self.assertRaises(AssertionError, obj.sum, 0, 0) # Seen twice.
 
-    def test_module_install_and_restore(self):
+    def test_replace_install_and_restore(self):
         try:
-            module = self.mocker.module("calendar")
+            module = self.mocker.replace("calendar")
             import calendar
             self.assertTrue(calendar is not module)
             self.mocker.replay()
@@ -154,11 +158,11 @@ class IntegrationTest(unittest.TestCase):
         finally:
             self.mocker.restore()
 
-    def test_module_os_path(self):
+    def test_replace_os_path_join(self):
         try:
-            path = self.mocker.module("os.path")
-            expect(path.join(VARIOUS)).call(lambda *args: "-".join(args))
-            expect(path.join("e", VARIOUS)).passthrough()
+            path = self.mocker.replace("os.path")
+            expect(path.join(ARGS)).call(lambda *args: "-".join(args))
+            expect(path.join("e", ARGS)).passthrough()
             self.mocker.replay()
             import os
             self.assertEquals(os.path.join("a", "b", "c"), "a-b-c")
@@ -166,6 +170,18 @@ class IntegrationTest(unittest.TestCase):
         finally:
             self.mocker.restore()
 
+    def test_replace_os_path_isfile(self):
+        try:
+            path = self.mocker.replace("os.path")
+            expect(path.isfile("unexistent")).result(True)
+            expect(path.isfile(ANY)).passthrough().count(2)
+            self.mocker.replay()
+            import os
+            self.assertFalse(os.path.isfile("another-unexistent"))
+            self.assertTrue(os.path.isfile("unexistent"))
+            self.assertFalse(os.path.isfile("unexistent"))
+        finally:
+            self.mocker.restore()
 
 class ExpectTest(unittest.TestCase):
 
@@ -173,13 +189,13 @@ class ExpectTest(unittest.TestCase):
         self.mocker = CleanMocker()
 
     def test_calling_mocker(self):
-        obj = self.mocker.obj()
+        obj = self.mocker.mock()
         expect(obj.attr).result(123)
         self.mocker.replay()
         self.assertEquals(obj.attr, 123)
 
     def test_chaining(self):
-        obj = self.mocker.obj()
+        obj = self.mocker.mock()
         expect(obj.attr).result(123).result(42)
         self.mocker.replay()
         self.assertEquals(obj.attr, 42)
@@ -194,8 +210,8 @@ class MockerTest(unittest.TestCase):
         def recorder(mocker, event):
             self.recorded.append((mocker, event))
 
-        self.action = Action(Path(Mock(self.mocker, name="mock")),
-                             "getattr", ("attr",), {})
+        self.action = Action("getattr", ("attr",), {},
+                             Path(Mock(self.mocker, name="mock")))
         self.path = self.action.path + self.action
 
     def test_default_state(self):
@@ -233,18 +249,77 @@ class MockerTest(unittest.TestCase):
         self.assertEquals(calls, [RESTORE])
 
     def test_verify(self):
-        calls = []
         class MyEvent(object):
-            def __init__(self, name):
-                self.name = name
+            def __init__(self, id, failed):
+                self.id = id
+                self.failed = failed
             def verify(self):
-                calls.append(self.name)
-        self.mocker.add_event(MyEvent("1"))
-        self.mocker.add_event(MyEvent("2"))
+                if self.failed:
+                    raise AssertionError("%d failed\n- Line 1\n- Line 2\n"
+                                         % self.id)
 
-        self.mocker.verify()
+        self.mocker.add_event(MyEvent(1, True))
+        self.mocker.add_event(MyEvent(2, False))
+        self.mocker.add_event(MyEvent(3, True))
 
-        self.assertEquals(calls, ["1", "2"])
+        try:
+            self.mocker.verify()
+        except AssertionError, e:
+            message = os.linesep.join(["[Mocker] Unmet expectations:",
+                                       "",
+                                       "=> 1 failed",
+                                       " - Line 1",
+                                       " - Line 2",
+                                       "",
+                                       "=> 3 failed",
+                                       " - Line 1",
+                                       " - Line 2",
+                                       ""])
+            self.assertEquals(str(e), message)
+        else:
+            self.fail("AssertionError not raised")
+
+    def test_mocker_as_context_manager(self):
+        calls = []
+        throw = False
+        class MyEvent(Event):
+            def verify(self):
+                calls.append("verify")
+                if throw:
+                    raise AssertionError("Some problem")
+            def set_state(self, state):
+                calls.append({REPLAY: "replay", RESTORE: "restore"}[state])
+
+        event = MyEvent()
+        self.mocker.add_event(event)
+
+        self.assertEquals(calls, [])
+
+        mocker = self.mocker.__enter__()
+        self.assertTrue(mocker is self.mocker)
+        self.assertEquals(calls, ["replay"])
+
+        # Verify without errors.
+        del calls[:]
+        result = self.mocker.__exit__(None, None, None)
+        self.assertEquals(result, False)
+        self.assertEquals(calls, ["restore", "verify"])
+
+        throw = True
+
+        # Verify raising an error.
+        self.mocker.replay()
+        del calls[:]
+        self.assertRaises(AssertionError,
+                          self.mocker.__exit__, None, None, None)
+        self.assertEquals(calls, ["restore", "verify"])
+
+        # An exception happened in the 'with' block.  Verify won't raise.
+        self.mocker.replay()
+        del calls[:]
+        result = self.mocker.__exit__(AssertionError, None, None)
+        self.assertEquals(result, False)
+        self.assertEquals(calls, ["restore"])
 
     def test_add_recorder_on_instance(self):
         obj1 = object()
@@ -305,72 +380,136 @@ class MockerTest(unittest.TestCase):
         MyMocker.remove_recorder(obj1)
         self.assertEquals(MyMocker.get_recorders(), [obj2])
 
-    def test_obj(self):
-        self.mocker = CleanMocker()
-        obj = self.mocker.obj()
-        self.assertEquals(type(obj), Mock)
+    def test_mock_with_name(self):
+        mock = self.mocker.mock(name="name")
+        self.assertEquals(mock.__mocker_name__, "name")
 
-    def test_obj_with_spec(self):
+    def test_mock_with_spec(self):
         class C(object): pass
-        self.mocker = CleanMocker()
-        obj = self.mocker.obj(C)
-        self.assertEquals(obj.__mocker_spec__, C)
+        mock = self.mocker.mock(spec=C)
+        self.assertEquals(mock.__mocker_spec__, C)
+
+    def test_mock_with_type(self):
+        class C(object): pass
+        mock = self.mocker.mock(type=C)
+        self.assertEquals(mock.__mocker_type__, C)
+
+    def test_mock_with_spec_and_type(self):
+        class C(object): pass
+        mock = self.mocker.mock(C)
+        self.assertEquals(mock.__mocker_spec__, C)
+        self.assertEquals(mock.__mocker_type__, C)
 
     def test_proxy(self):
         original = object()
-        self.mocker = CleanMocker()
-        obj = self.mocker.proxy(original)
-        self.assertEquals(type(obj), Mock)
-        self.assertEquals(obj.__mocker_object__, original)
+        mock = self.mocker.proxy(original)
+        self.assertEquals(type(mock), Mock)
+        self.assertEquals(mock.__mocker_object__, original)
+        self.assertEquals(mock.__mocker_path__.root_object, original)
 
     def test_proxy_with_spec(self):
         original = object()
         class C(object): pass
-        self.mocker = CleanMocker()
-        obj = self.mocker.proxy(original, C)
-        self.assertEquals(obj.__mocker_object__, original)
-        self.assertEquals(obj.__mocker_spec__, C)
+        mock = self.mocker.proxy(original, C)
+        self.assertEquals(mock.__mocker_object__, original)
+        self.assertEquals(mock.__mocker_spec__, C)
+
+    def test_proxy_with_type(self):
+        original = object()
+        class C(object): pass
+        mock = self.mocker.proxy(original, type=C)
+        self.assertEquals(mock.__mocker_type__, C)
+
+    def test_proxy_spec_defaults_to_the_object_itself(self):
+        original = object()
+        mock = self.mocker.proxy(original)
+        self.assertEquals(mock.__mocker_spec__, original)
+
+    def test_proxy_type_defaults_to_the_object_type(self):
+        original = object()
+        mock = self.mocker.proxy(original)
+        self.assertEquals(mock.__mocker_type__, object)
+
+    def test_proxy_with_spec_and_type_none(self):
+        original = object()
+        mock = self.mocker.proxy(original, spec=None, type=None)
+        self.assertEquals(mock.__mocker_spec__, None)
+        self.assertEquals(mock.__mocker_type__, None)
 
     def test_proxy_with_passthrough_false(self):
         original = object()
         class C(object): pass
-        self.mocker = CleanMocker()
-        obj = self.mocker.proxy(original, C, passthrough=False)
-        self.assertEquals(obj.__mocker_object__, original)
-        self.assertEquals(obj.__mocker_spec__, C)
-        self.assertEquals(obj.__mocker_passthrough__, False)
+        mock = self.mocker.proxy(original, C, passthrough=False)
+        self.assertEquals(mock.__mocker_object__, original)
+        self.assertEquals(mock.__mocker_spec__, C)
+        self.assertEquals(mock.__mocker_passthrough__, False)
 
-    def test_proxy_install(self):
+    def test_replace(self):
         from os import path
         obj = object()
-        proxy = self.mocker.proxy(obj, install=True)
+        proxy = self.mocker.replace(obj, spec=object, name="obj",
+                                    passthrough=False)
         self.assertEquals(type(proxy), Mock)
         self.assertEquals(type(proxy.__mocker_object__), object)
         self.assertEquals(proxy.__mocker_object__, obj)
+        self.assertEquals(proxy.__mocker_spec__, object)
+        self.assertEquals(proxy.__mocker_name__, "obj")
         (event,) = self.mocker.get_events()
         (task,) = event.get_tasks()
-        self.assertEquals(type(task), ProxyInstaller)
+        self.assertEquals(type(task), ProxyReplacer)
         self.assertTrue(task.mock is proxy)
         self.assertTrue(task.mock.__mocker_object__ is obj)
         self.assertTrue(proxy is not obj)
 
-    def test_module(self):
+    def test_replace_with_submodule_string(self):
         from os import path
-        module = self.mocker.module("os.path")
+        module = self.mocker.replace("os.path")
         self.assertEquals(type(module), Mock)
         self.assertEquals(type(module.__mocker_object__), ModuleType)
         self.assertEquals(module.__mocker_name__, "os.path")
         self.assertEquals(module.__mocker_object__, path)
         (event,) = self.mocker.get_events()
         (task,) = event.get_tasks()
-        self.assertEquals(type(task), ProxyInstaller)
+        self.assertEquals(type(task), ProxyReplacer)
         self.assertTrue(task.mock is module)
         self.assertTrue(task.mock.__mocker_object__ is path)
         self.assertTrue(module is not path)
 
-    def test_module_with_passthrough_false(self):
-        module = self.mocker.module("calendar", passthrough=False)
-        self.assertEquals(module.__mocker_passthrough__, False)
+    def test_replace_with_module_function_string(self):
+        mock = self.mocker.replace("os.path.join.func_name")
+        self.assertEquals(mock.__mocker_object__, "join")
+
+    def test_replace_with_string_and_name(self):
+        module = self.mocker.replace("os.path", name="mock")
+        self.assertEquals(module.__mocker_name__, "mock")
+
+    def test_replace_with_type(self):
+        original = object()
+        class C(object): pass
+        mock = self.mocker.replace(original, type=C)
+        self.assertEquals(mock.__mocker_type__, C)
+
+    def test_replace_spec_defaults_to_the_object_itself(self):
+        original = object()
+        mock = self.mocker.replace(original)
+        self.assertEquals(mock.__mocker_spec__, original)
+
+    def test_replace_type_defaults_to_the_object_type(self):
+        original = object()
+        mock = self.mocker.replace(original)
+        self.assertEquals(mock.__mocker_type__, object)
+
+    def test_replace_with_spec_and_type_none(self):
+        original = object()
+        mock = self.mocker.replace(original, spec=None, type=None)
+        self.assertEquals(mock.__mocker_spec__, None)
+        self.assertEquals(mock.__mocker_type__, None)
+
+    def test_replace_with_passthrough_false(self):
+        original = object()
+        class C(object): pass
+        mock = self.mocker.replace(original, passthrough=False)
+        self.assertEquals(mock.__mocker_passthrough__, False)
 
     def test_add_and_get_event(self):
         self.mocker.add_event(41)
@@ -378,31 +517,32 @@ class MockerTest(unittest.TestCase):
         self.assertEquals(self.mocker.get_events(), [41, 42])
 
     def test_recording(self):
-        obj = self.mocker.obj()
+        obj = self.mocker.mock()
         obj.attr()
 
         self.assertEquals(len(self.recorded), 2)
 
-        action1 = Action(None, "getattr", ("attr",), {})
-        action2 = Action(None, "call", (), {})
+        action1 = Action("getattr", ("attr",), {})
+        action2 = Action("call", (), {})
 
         mocker1, event1 = self.recorded[0]
         self.assertEquals(mocker1, self.mocker)
         self.assertEquals(type(event1), Event)
-        self.assertTrue(event1.path.matches(Path(obj, [action1])))
+        self.assertTrue(event1.path.matches(Path(obj, None, [action1])))
 
         mocker2, event2 = self.recorded[1]
         self.assertEquals(mocker2, self.mocker)
         self.assertEquals(type(event2), Event)
-        self.assertTrue(event2.path.matches(Path(obj, [action1, action2])))
+        self.assertTrue(event2.path.matches(Path(obj, None,
+                                                 [action1, action2])))
 
         self.assertEquals(self.mocker.get_events(), [event1, event2])
 
     def test_recording_result_path(self):
-        obj = self.mocker.obj()
+        obj = self.mocker.mock()
         result = obj.attr()
-        path = Path(obj, [Action(None, "getattr", ("attr",), {}),
-                          Action(None, "call", (), {})])
+        path = Path(obj, None, [Action("getattr", ("attr",), {}),
+                                Action("call", (), {})])
         self.assertTrue(result.__mocker_path__.matches(path))
 
     def test_replaying_no_events(self):
@@ -456,7 +596,7 @@ class MockerTest(unittest.TestCase):
             def verify(self):
                 if not self.raised:
                     self.raised = True
-                    raise AssertionError()
+                    raise AssertionError("An error")
             def run(self, path):
                 return "result2"
         event1 = self.mocker.add_event(Event())
@@ -515,10 +655,10 @@ class MockerTest(unittest.TestCase):
         self.assertEquals(task.max, 4)
 
     def test_order(self):
-        mock1 = self.mocker.obj()
-        mock2 = self.mocker.obj()
-        mock3 = self.mocker.obj()
-        mock4 = self.mocker.obj()
+        mock1 = self.mocker.mock()
+        mock2 = self.mocker.mock()
+        mock3 = self.mocker.mock()
+        mock4 = self.mocker.mock()
         result1 = mock1.attr1(1)
         result2 = mock2.attr2(2)
         result3 = mock3.attr3(3)
@@ -560,9 +700,9 @@ class MockerTest(unittest.TestCase):
         self.assertEquals(other_task_, other_task)
 
     def test_after(self):
-        mock1 = self.mocker.obj()
-        mock2 = self.mocker.obj()
-        mock3 = self.mocker.obj()
+        mock1 = self.mocker.mock()
+        mock2 = self.mocker.mock()
+        mock3 = self.mocker.mock()
         result1 = mock1.attr1(1)
         result2 = mock2.attr2(2)
         result3 = mock3.attr3(3)
@@ -596,9 +736,9 @@ class MockerTest(unittest.TestCase):
         self.assertEquals(other_task_, other_task)
 
     def test_before(self):
-        mock1 = self.mocker.obj()
-        mock2 = self.mocker.obj()
-        mock3 = self.mocker.obj()
+        mock1 = self.mocker.mock()
+        mock2 = self.mocker.mock()
+        mock3 = self.mocker.mock()
         result1 = mock1.attr1(1)
         result2 = mock2.attr2(2)
         result3 = mock3.attr3(3)
@@ -638,7 +778,7 @@ class MockerTest(unittest.TestCase):
         self.mocker.ordered()
         self.assertEquals(self.mocker.is_ordering(), True)
 
-    def test_ordered_enter_exit(self):
+    def test_ordered_context_manager(self):
         with_manager = self.mocker.ordered()
         self.assertEquals(self.mocker.is_ordering(), True)
         with_manager.__enter__()
@@ -652,7 +792,7 @@ class MockerTest(unittest.TestCase):
         self.assertEquals(self.mocker.is_ordering(), False)
 
     def test_ordered_events(self):
-        mock = self.mocker.obj()
+        mock = self.mocker.mock()
 
         # Ensure that the state is correctly reset between
         # different ordered blocks.
@@ -691,25 +831,38 @@ class MockerTest(unittest.TestCase):
         self.assertEquals(event2.get_tasks(), [task2, task4])
 
     def test_passthrough(self):
-        obj = self.mocker.proxy(object())
-        event1 = self.mocker.add_event(Event(Path(obj)))
-        event2 = self.mocker.add_event(Event(Path(obj)))
+        obj = object()
+        mock = self.mocker.proxy(obj)
+        event1 = self.mocker.add_event(Event(Path(mock, obj)))
+        event2 = self.mocker.add_event(Event(Path(mock, obj)))
         self.mocker.passthrough()
         self.assertEquals(event1.get_tasks(), [])
         (task,) = event2.get_tasks()
-        self.assertEquals(type(task), PathApplier)
+        self.assertEquals(type(task), PathExecuter)
 
     def test_passthrough_fails_on_unproxied(self):
-        obj = self.mocker.obj()
-        event1 = self.mocker.add_event(Event(Path(obj)))
-        event2 = self.mocker.add_event(Event(Path(obj)))
+        mock = self.mocker.mock()
+        event1 = self.mocker.add_event(Event(Path(mock)))
+        event2 = self.mocker.add_event(Event(Path(mock)))
         self.assertRaises(TypeError, self.mocker.passthrough)
 
     def test_on(self):
-        obj = self.mocker.obj()
+        obj = self.mocker.mock()
         self.mocker.on(obj.attr).result(123)
         self.mocker.replay()
         self.assertEquals(obj.attr, 123)
+
+    def test_patch(self):
+        class C(object): pass
+        mock = self.mocker.patch(C)
+        self.assertEquals(type(C.__mocker_mock__), Mock)
+        self.assertTrue(C.__mocker_mock__ is mock)
+        self.assertTrue(mock.__mocker_object__ is C)
+        self.assertEquals(type(mock.__mocker_patcher__), Patcher)
+        self.assertEquals(mock.__mocker_passthrough__, True)
+        (event,) = self.mocker.get_events()
+        (task,) = event.get_tasks()
+        self.assertTrue(task is mock.__mocker_patcher__)
 
 
 class ActionTest(unittest.TestCase):
@@ -720,32 +873,77 @@ class ActionTest(unittest.TestCase):
     def test_create(self):
         objects = [object() for i in range(4)]
         action = Action(*objects)
-        self.assertEquals(action.path, objects[0])
-        self.assertEquals(action.kind, objects[1])
-        self.assertEquals(action.args, objects[2])
-        self.assertEquals(action.kwargs, objects[3])
+        self.assertEquals(action.kind, objects[0])
+        self.assertEquals(action.args, objects[1])
+        self.assertEquals(action.kwargs, objects[2])
+        self.assertEquals(action.path, objects[3])
 
-    def test_apply_getattr(self):
+    def test_execute_getattr(self):
         class C(object):
             pass
         obj = C()
         obj.x = C()
-        action = Action(None, "getattr", ("x",), {})
-        self.assertEquals(action.apply(obj), obj.x)
+        action = Action("getattr", ("x",), {})
+        self.assertEquals(action.execute(obj), obj.x)
 
-    def test_apply_call(self):
+    def test_execute_call(self):
         obj = lambda a, b: a+b
-        action = Action(None, "call", (1,), {"b": 2})
-        self.assertEquals(action.apply(obj), 3)
+        action = Action("call", (1,), {"b": 2})
+        self.assertEquals(action.execute(obj), 3)
 
-    def test_apply_caching(self):
+    def test_execute_caching(self):
         values = iter(range(10))
         obj = lambda: values.next()
-        action = Action(None, "call", (), {})
-        self.assertEquals(action.apply(obj), 0)
-        self.assertEquals(action.apply(obj), 0)
+        action = Action("call", (), {})
+        self.assertEquals(action.execute(obj), 0)
+        self.assertEquals(action.execute(obj), 0)
         obj = lambda: values.next()
-        self.assertEquals(action.apply(obj), 1)
+        self.assertEquals(action.execute(obj), 1)
+
+    def test_equals(self):
+        obj1 = object()
+        obj2 = object()
+
+        self.assertEquals(Action("kind", (), {}, obj1),
+                          Action("kind", (), {}, obj2))
+        self.assertNotEquals(Action("kind", (), {}, obj1),
+                             Action("dnik", (), {}, obj2))
+        self.assertNotEquals(Action("kind", (), {}, obj1),
+                             Action("kind", (1,), {}, obj2))
+        self.assertNotEquals(Action("kind", (), {}, obj1),
+                             Action("kind", (), {"a": 1}, obj2))
+        self.assertNotEquals(Action("kind", (ANY,), {}, obj1),
+                             Action("kind", (1,), {}, obj2))
+        self.assertEquals(Action("kind", (CONTAINS(1),), {}, obj1),
+                          Action("kind", (CONTAINS(1),), {}, obj2))
+
+    def test_matches(self):
+        obj1 = object()
+        obj2 = object()
+
+        action1 = Action("kind", (), {}, obj1)
+        action2 = Action("kind", (), {}, obj2)
+        self.assertTrue(action1.matches(action2))
+
+        action1 = Action("kind", (), {}, obj1)
+        action2 = Action("dnik", (), {}, obj2)
+        self.assertFalse(action1.matches(action2))
+
+        action1 = Action("kind", (), {}, obj1)
+        action2 = Action("kind", (1,), {}, obj2)
+        self.assertFalse(action1.matches(action2))
+
+        action1 = Action("kind", (), {}, obj1)
+        action2 = Action("kind", (), {"a": 1}, obj2)
+        self.assertFalse(action1.matches(action2))
+
+        action1 = Action("kind", (ARGS,), {}, obj1)
+        action2 = Action("kind", (), {}, obj2)
+        self.assertTrue(action1.matches(action2))
+
+        action1 = Action("kind", (ARGS,), {"a": 1}, obj1)
+        action2 = Action("kind", (), {}, obj2)
+        self.assertFalse(action1.matches(action2))
 
 
 class PathTest(unittest.TestCase):
@@ -757,31 +955,41 @@ class PathTest(unittest.TestCase):
                 pass
         self.mocker = StubMocker()
         self.mock = Mock(self.mocker, name="obj")
+        self.object = object()
 
     def test_create(self):
         mock = object()
         path = Path(mock)
         self.assertEquals(path.root_mock, mock)
+        self.assertEquals(path.root_object, None)
         self.assertEquals(path.actions, ())
+
+    def test_create_with_object(self):
+        mock = object()
+        path = Path(mock, self.object)
+        self.assertEquals(path.root_mock, mock)
+        self.assertEquals(path.root_object, self.object)
 
     def test_create_with_actions(self):
         mock = object()
-        path = Path(mock, [1,2,3])
+        path = Path(mock, self.object, [1,2,3])
         self.assertEquals(path.root_mock, mock)
+        self.assertEquals(path.root_object, self.object)
         self.assertEquals(path.actions, (1,2,3))
 
     def test_add(self):
         mock = object()
-        path = Path(mock, [1,2,3])
+        path = Path(mock, self.object, [1,2,3])
         result = path + 4
         self.assertTrue(result is not path)
         self.assertEquals(result.root_mock, mock)
+        self.assertEquals(result.root_object, self.object)
         self.assertEquals(result.actions, (1,2,3,4))
 
     def test_parent_path(self):
         path1 = Path(self.mock)
-        path2 = path1 + Action(path1, "getattr", ("attr",), {})
-        path3 = path2 + Action(path2, "getattr", ("attr",), {})
+        path2 = path1 + Action("getattr", ("attr",), {}, path1)
+        path3 = path2 + Action("getattr", ("attr",), {}, path2)
 
         self.assertEquals(path1.parent_path, None)
         self.assertEquals(path2.parent_path, path1)
@@ -789,86 +997,97 @@ class PathTest(unittest.TestCase):
 
     def test_equals(self):
         mock = object()
+        obj = object()
         obj1 = object()
         obj2 = object()
 
         # Not the *same* mock.
-        path1 = Path([], [])
-        path2 = Path([], [])
+        path1 = Path([], obj, [])
+        path2 = Path([], obj, [])
         self.assertNotEquals(path1, path2)
 
-        path1 = Path(mock, [Action(obj1, "kind", (), {})])
-        path2 = Path(mock, [Action(obj2, "kind", (), {})])
+        # Not the *same* object.
+        path1 = Path(mock, [], [])
+        path2 = Path(mock, [], [])
+        self.assertNotEquals(path1, path2)
+
+        path1 = Path(mock, obj, [Action("kind", (), {}, obj1)])
+        path2 = Path(mock, obj, [Action("kind", (), {}, obj2)])
         self.assertEquals(path1, path2)
 
-        path1 = Path(mock, [Action(obj1, "kind", (), {})])
-        path2 = Path(mock, [Action(obj2, "dnik", (), {})])
+        path1 = Path(mock, obj, [Action("kind", (), {}, obj1)])
+        path2 = Path(mock, obj, [Action("dnik", (), {}, obj2)])
         self.assertNotEquals(path1, path2)
 
-        path1 = Path(mock, [Action(obj1, "kind", (), {})])
-        path2 = Path(object(), [Action(obj2, "kind", (), {})])
+        path1 = Path(mock, obj, [Action("kind", (), {}, obj1)])
+        path2 = Path(object(), obj, [Action("kind", (), {}, obj2)])
         self.assertNotEquals(path1, path2)
 
-        path1 = Path(mock, [Action(obj1, "kind", (), {})])
-        path2 = Path(mock, [Action(obj2, "kind", (1,), {})])
+        path1 = Path(mock, obj, [Action("kind", (), {}, obj1)])
+        path2 = Path(mock, obj, [Action("kind", (1,), {}, obj2)])
         self.assertNotEquals(path1, path2)
 
-        path1 = Path(mock, [Action(obj1, "kind", (), {})])
-        path2 = Path(mock, [Action(obj2, "kind", (), {"a": 1})])
+        path1 = Path(mock, obj, [Action("kind", (), {}, obj1)])
+        path2 = Path(mock, obj, [Action("kind", (), {"a": 1}, obj2)])
         self.assertNotEquals(path1, path2)
 
-        path1 = Path(mock, [Action(obj1, "kind", (), {})])
-        path2 = Path(mock, [])
+        path1 = Path(mock, obj, [Action("kind", (), {}, obj1)])
+        path2 = Path(mock, obj, [])
         self.assertNotEquals(path1, path2)
 
-        path1 = Path(mock, [Action(obj1, "kind", (ANY,), {})])
-        path2 = Path(mock, [Action(obj2, "kind", (1), {})])
+        path1 = Path(mock, obj, [Action("kind", (ANY,), {}, obj1)])
+        path2 = Path(mock, obj, [Action("kind", (1,), {}, obj2)])
         self.assertNotEquals(path1, path2)
 
-        path1 = Path(mock, [Action(obj1, "kind", (CONTAINS(1),), {})])
-        path2 = Path(mock, [Action(obj2, "kind", (CONTAINS(1),), {})])
+        path1 = Path(mock, obj, [Action("kind", (CONTAINS(1),), {}, obj1)])
+        path2 = Path(mock, obj, [Action("kind", (CONTAINS(1),), {}, obj2)])
         self.assertEquals(path1, path2)
 
     def test_matches(self):
+        obj = object()
         mock = object()
         obj1 = object()
         obj2 = object()
 
         # Not the *same* mock.
-        path1 = Path([], [])
-        path2 = Path([], [])
+        path1 = Path([], obj, [])
+        path2 = Path([], obj, [])
         self.assertFalse(path1.matches(path2))
 
-        path1 = Path(mock, [Action(obj1, "kind", (), {})])
-        path2 = Path(mock, [Action(obj2, "kind", (), {})])
+        path1 = Path(mock, obj1, [])
+        path2 = Path(mock, obj2, [])
         self.assertTrue(path1.matches(path2))
 
-        path1 = Path(mock, [Action(obj1, "kind", (), {})])
-        path2 = Path(mock, [Action(obj2, "dnik", (), {})])
-        self.assertFalse(path1.matches(path2))
-
-        path1 = Path(mock, [Action(obj1, "kind", (), {})])
-        path2 = Path(object(), [Action(obj2, "kind", (), {})])
-        self.assertFalse(path1.matches(path2))
-
-        path1 = Path(mock, [Action(obj1, "kind", (), {})])
-        path2 = Path(mock, [Action(obj2, "kind", (1,), {})])
-        self.assertFalse(path1.matches(path2))
-
-        path1 = Path(mock, [Action(obj1, "kind", (), {})])
-        path2 = Path(mock, [Action(obj2, "kind", (), {"a": 1})])
-        self.assertFalse(path1.matches(path2))
-
-        path1 = Path(mock, [Action(obj1, "kind", (), {})])
-        path2 = Path(mock, [])
-        self.assertFalse(path1.matches(path2))
-
-        path1 = Path(mock, [Action(obj1, "kind", (VARIOUS,), {})])
-        path2 = Path(mock, [Action(obj2, "kind", (), {})])
+        path1 = Path(mock, obj, [Action("kind", (), {}, obj1)])
+        path2 = Path(mock, obj, [Action("kind", (), {}, obj2)])
         self.assertTrue(path1.matches(path2))
 
-        path1 = Path(mock, [Action(obj1, "kind", (VARIOUS,), {"a": 1})])
-        path2 = Path(mock, [Action(obj2, "kind", (), {})])
+        path1 = Path(mock, obj, [Action("kind", (), {}, obj1)])
+        path2 = Path(mock, obj, [Action("dnik", (), {}, obj2)])
+        self.assertFalse(path1.matches(path2))
+
+        path1 = Path(mock, obj, [Action("kind", (), {}, obj1)])
+        path2 = Path(object(), [Action("kind", (), {}, obj2)])
+        self.assertFalse(path1.matches(path2))
+
+        path1 = Path(mock, obj, [Action("kind", (), {}, obj1)])
+        path2 = Path(mock, obj, [Action("kind", (1,), {}, obj2)])
+        self.assertFalse(path1.matches(path2))
+
+        path1 = Path(mock, obj, [Action("kind", (), {}, obj1)])
+        path2 = Path(mock, obj, [Action("kind", (), {"a": 1}, obj2)])
+        self.assertFalse(path1.matches(path2))
+
+        path1 = Path(mock, obj, [Action("kind", (), {}, obj1)])
+        path2 = Path(mock, obj, [])
+        self.assertFalse(path1.matches(path2))
+
+        path1 = Path(mock, obj, [Action("kind", (ARGS,), {}, obj1)])
+        path2 = Path(mock, obj, [Action("kind", (), {}, obj2)])
+        self.assertTrue(path1.matches(path2))
+
+        path1 = Path(mock, obj, [Action("kind", (ARGS,), {"a": 1}, obj1)])
+        path2 = Path(mock, obj, [Action("kind", (), {}, obj2)])
         self.assertFalse(path1.matches(path2))
 
     def test_str(self):
@@ -887,40 +1106,40 @@ class PathTest(unittest.TestCase):
         self.assertEquals(str(path), "named_mock")
 
     def test_str_getattr(self):
-        path = Path(self.mock, [Action(None, "getattr", ("attr",), {})])
+        path = Path(self.mock, None, [Action("getattr", ("attr",), {})])
         self.assertEquals(str(path), "obj.attr")
 
-        path += Action(None, "getattr", ("x",), {})
+        path += Action("getattr", ("x",), {})
         self.assertEquals(str(path), "obj.attr.x")
 
     def test_str_call(self):
-        path = Path(self.mock, [Action(None, "call", (), {})])
+        path = Path(self.mock, None, [Action("call", (), {})])
         self.assertEquals(str(path), "obj()")
 
-        path = Path(self.mock,
-                    [Action(None, "call", (1, "2"), {"a":3,"b":"4"})])
+        path = Path(self.mock, None,
+                    [Action("call", (1, "2"), {"a": 3, "b": "4"})])
         self.assertEquals(str(path), "obj(1, '2', a=3, b='4')")
 
     def test_str_getattr_call(self):
-        path = Path(self.mock, [Action(None, "getattr", ("x",), {}),
-                                Action(None, "getattr", ("y",), {}),
-                                Action(None, "call", ("z",), {})])
+        path = Path(self.mock, None, [Action("getattr", ("x",), {}),
+                                      Action("getattr", ("y",), {}),
+                                      Action("call", ("z",), {})])
         self.assertEquals(str(path), "obj.x.y('z')")
 
     def test_str_raise_on_unknown(self):
-        path = Path(self.mock, [Action(None, "unknown", (), {})])
+        path = Path(self.mock, None, [Action("unknown", (), {})])
         self.assertRaises(RuntimeError, str, path)
 
-    def test_apply(self):
+    def test_execute(self):
         class C(object):
             pass
         obj = C()
         obj.x = C()
         obj.x.y = lambda a, b: a+b
-        path = Path(self.mock, [Action(None, "getattr", ("x",), {}),
-                                Action(None, "getattr", ("y",), {}),
-                                Action(None, "call", (1,), {"b": 2})])
-        self.assertEquals(path.apply(obj), 3)
+        path = Path(self.mock, None, [Action("getattr", ("x",), {}),
+                                      Action("getattr", ("y",), {}),
+                                      Action("call", (1,), {"b": 2})])
+        self.assertEquals(path.execute(obj), 3)
 
 
 class MatchParamsTest(unittest.TestCase):
@@ -935,17 +1154,26 @@ class MatchParamsTest(unittest.TestCase):
         self.assertEquals(repr(ANY), "ANY")
 
     def test_any_equals(self):
-        self.assertEquals(ANY, 1)
-        self.assertEquals(ANY, 42)
         self.assertEquals(ANY, ANY)
+        self.assertNotEquals(ANY, ARGS)
+        self.assertNotEquals(ANY, object())
+
+    def test_any_matches(self):
+        self.assertTrue(ANY.matches(1))
+        self.assertTrue(ANY.matches(42))
+        self.assertTrue(ANY.matches(object()))
 
     def test_various_repr(self):
         self.assertEquals(repr(VARIOUS), "VARIOUS")
 
     def test_various_equals(self):
         self.assertEquals(VARIOUS, VARIOUS)
-        self.assertNotEquals(VARIOUS, ANY)
-        self.assertNotEquals(ANY, VARIOUS)
+        self.assertNotEquals(VARIOUS, object())
+
+    def test_various_matches(self):
+        self.assertTrue(VARIOUS.matches(1))
+        self.assertTrue(VARIOUS.matches(42))
+        self.assertTrue(VARIOUS.matches(object()))
 
     def test_same_repr(self):
         self.assertEquals(repr(SAME("obj")), "SAME('obj')")
@@ -953,96 +1181,126 @@ class MatchParamsTest(unittest.TestCase):
     def test_same_equals(self):
         l1 = []
         l2 = []
-        self.assertEquals(SAME(l1), l1)
         self.assertNotEquals(SAME(l1), l2)
-
         self.assertEquals(SAME(l1), SAME(l1))
         self.assertNotEquals(SAME(l1), SAME(l2))
 
-        self.assertNotEquals(ANY, SAME(l1))
-        self.assertNotEquals(SAME(l1), ANY)
+    def test_same_matches(self):
+        l1 = []
+        l2 = []
+        self.assertTrue(SAME(l1).matches(l1))
+        self.assertFalse(SAME(l1).matches(l2))
+        self.assertFalse(SAME(l1).matches(ANY))
 
     def test_contains_repr(self):
         self.assertEquals(repr(CONTAINS("obj")), "CONTAINS('obj')")
 
     def test_contains_equals(self):
-        self.assertEquals(CONTAINS(1), [1])
-        self.assertNotEquals(CONTAINS([1]), [1])
-
         self.assertEquals(CONTAINS([1]), CONTAINS([1]))
         self.assertNotEquals(CONTAINS(1), CONTAINS([1]))
 
-        self.assertNotEquals(ANY, CONTAINS(1))
-        self.assertNotEquals(CONTAINS(1), ANY)
+    def test_contains_matches(self):
+        self.assertTrue(CONTAINS(1).matches([1]))
+        self.assertFalse(CONTAINS([1]).matches([1]))
+        self.assertFalse(CONTAINS(1).matches(object()))
+
+    def test_contains_matches_with_contains(self):
+        """Can't be iterated, but has contains hook."""
+        class C(object):
+            def __contains__(self, value):
+                return True
+        self.assertTrue(CONTAINS(1).matches(C()))
 
     def test_normal(self):
-        self.assertTrue(match_params((), {}, (), {}))
-        self.assertTrue(match_params((1, 2), {"a": 3}, (1, 2), {"a": 3}))
-        self.assertFalse(match_params((1,), {}, (), {}))
-        self.assertFalse(match_params((), {}, (1,), {}))
-        self.assertFalse(match_params((1, 2), {"a": 3}, (1, 2), {"a": 4}))
-        self.assertFalse(match_params((1, 2), {"a": 3}, (1, 3), {"a": 3}))
+        self.true((), {}, (), {})
+        self.true((1, 2), {"a": 3}, (1, 2), {"a": 3})
+        self.false((1,), {}, (), {})
+        self.false((), {}, (1,), {})
+        self.false((1, 2), {"a": 3}, (1, 2), {"a": 4})
+        self.false((1, 2), {"a": 3}, (1, 3), {"a": 3})
 
     def test_any(self):
-        self.assertTrue(match_params((1, 2), {"a": ANY}, (1, 2), {"a": 4}))
-        self.assertTrue(match_params((1, ANY), {"a": 3}, (1, 3), {"a": 3}))
-        self.assertFalse(match_params((ANY,), {}, (), {}))
+        self.true((1, 2), {"a": ANY}, (1, 2), {"a": 4})
+        self.true((1, ANY), {"a": 3}, (1, 3), {"a": 3})
+        self.false((ANY,), {}, (), {})
 
-    def test_various_alone(self):
-        self.true((VARIOUS,), {}, (), {})
-        self.true((VARIOUS,), {}, (1, 2), {})
-        self.true((VARIOUS,), {}, (1, 2), {"a": 2})
-        self.true((VARIOUS,), {}, (), {"a": 2})
-        self.true((VARIOUS,), {"a": 1}, (), {"a": 1})
-        self.true((VARIOUS,), {"a": 1}, (1, 2), {"a": 1})
-        self.true((VARIOUS,), {"a": 1}, (), {"a": 1, "b": 2})
-        self.true((VARIOUS,), {"a": 1}, (1, 2), {"a": 1, "b": 2})
-        self.false((VARIOUS,), {"a": 1}, (), {})
+    def test_args_alone(self):
+        self.true((ARGS,), {}, (), {})
+        self.true((ARGS,), {}, (1, 2), {})
+        self.false((ARGS,), {}, (1, 2), {"a": 2})
+        self.false((ARGS,), {}, (), {"a": 2})
+        self.true((ARGS,), {"a": 1}, (), {"a": 1})
+        self.true((ARGS,), {"a": 1}, (1, 2), {"a": 1})
+        self.false((ARGS,), {"a": 1}, (), {"a": 1, "b": 2})
+        self.false((ARGS,), {"a": 1}, (1, 2), {"a": 1, "b": 2})
+        self.false((ARGS,), {"a": 1}, (), {})
 
-    def test_various_at_start(self):
-        self.true((VARIOUS, 3, 4), {}, (3, 4), {})
-        self.true((VARIOUS, 3, 4), {}, (1, 2, 3, 4), {})
-        self.true((VARIOUS, 3, 4), {"a": 1}, (3, 4), {"a": 1})
-        self.true((VARIOUS, 3, 4), {"a": 1}, (1, 2, 3, 4), {"a": 1, "b": 2})
-        self.false((VARIOUS, 3, 4), {}, (), {})
-        self.false((VARIOUS, 3, 4), {}, (3, 5), {})
-        self.false((VARIOUS, 3, 4), {}, (5, 5), {})
-        self.false((VARIOUS, 3, 4), {"a": 1}, (), {})
-        self.false((VARIOUS, 3, 4), {"a": 1}, (3, 4), {})
-        self.false((VARIOUS, 3, 4), {"a": 1}, (3, 4), {"b": 2})
+    def test_kwargs_alone(self):
+        self.true((KWARGS,), {}, (), {})
+        self.false((KWARGS,), {}, (1, 2), {})
+        self.false((KWARGS,), {}, (1, 2), {"a": 2})
+        self.true((KWARGS,), {}, (), {"a": 2})
+        self.true((KWARGS,), {"a": 1}, (), {"a": 1})
+        self.false((KWARGS,), {"a": 1}, (1, 2), {"a": 1})
+        self.true((KWARGS,), {"a": 1}, (), {"a": 1, "b": 2})
+        self.false((KWARGS,), {"a": 1}, (1, 2), {"a": 1, "b": 2})
+        self.false((KWARGS,), {"a": 1}, (), {})
 
-    def test_various_at_end(self):
-        self.true((1, 2, VARIOUS), {}, (1, 2), {})
-        self.true((1, 2, VARIOUS), {}, (1, 2, 3, 4), {})
-        self.true((1, 2, VARIOUS), {"a": 1}, (1, 2), {"a": 1})
-        self.true((1, 2, VARIOUS), {"a": 1}, (1, 2, 3, 4), {"a": 1, "b": 2})
-        self.false((1, 2, VARIOUS), {}, (), {})
-        self.false((1, 2, VARIOUS), {}, (1, 3), {})
-        self.false((1, 2, VARIOUS), {}, (3, 3), {})
-        self.false((1, 2, VARIOUS), {"a": 1}, (), {})
-        self.false((1, 2, VARIOUS), {"a": 1}, (1, 2), {})
-        self.false((1, 2, VARIOUS), {"a": 1}, (1, 2), {"b": 2})
+    def test_args_kwargs(self):
+        self.true((ARGS, KWARGS), {}, (), {})
+        self.true((ARGS, KWARGS), {}, (1, 2), {})
+        self.true((ARGS, KWARGS), {}, (1, 2), {"a": 2})
+        self.true((ARGS, KWARGS), {}, (), {"a": 2})
+        self.true((ARGS, KWARGS), {"a": 1}, (), {"a": 1})
+        self.true((ARGS, KWARGS), {"a": 1}, (1, 2), {"a": 1})
+        self.true((ARGS, KWARGS), {"a": 1}, (), {"a": 1, "b": 2})
+        self.true((ARGS, KWARGS), {"a": 1}, (1, 2), {"a": 1, "b": 2})
+        self.false((ARGS, KWARGS), {"a": 1}, (), {})
 
-    def test_various_at_middle(self):
-        self.true((1, VARIOUS, 4), {}, (1, 4), {})
-        self.true((1, VARIOUS, 4), {}, (1, 2, 3, 4), {})
-        self.true((1, VARIOUS, 4), {"a": 1}, (1, 4), {"a": 1})
-        self.true((1, VARIOUS, 4), {"a": 1}, (1, 2, 3, 4), {"a": 1, "b": 2})
-        self.false((1, VARIOUS, 4), {}, (), {})
-        self.false((1, VARIOUS, 4), {}, (1, 5), {})
-        self.false((1, VARIOUS, 4), {}, (5, 5), {})
-        self.false((1, VARIOUS, 4), {"a": 1}, (), {})
-        self.false((1, VARIOUS, 4), {"a": 1}, (1, 4), {})
-        self.false((1, VARIOUS, 4), {"a": 1}, (1, 4), {"b": 2})
+    def test_args_at_start(self):
+        self.true((ARGS, 3, 4), {}, (3, 4), {})
+        self.true((ARGS, 3, 4), {}, (1, 2, 3, 4), {})
+        self.true((ARGS, 3, 4), {"a": 1}, (3, 4), {"a": 1})
+        self.false((ARGS, 3, 4), {"a": 1}, (1, 2, 3, 4), {"a": 1, "b": 2})
+        self.false((ARGS, 3, 4), {}, (), {})
+        self.false((ARGS, 3, 4), {}, (3, 5), {})
+        self.false((ARGS, 3, 4), {}, (5, 5), {})
+        self.false((ARGS, 3, 4), {"a": 1}, (), {})
+        self.false((ARGS, 3, 4), {"a": 1}, (3, 4), {})
+        self.false((ARGS, 3, 4), {"a": 1}, (3, 4), {"b": 2})
 
-    def test_various_multiple(self):
-        self.true((VARIOUS, 3, VARIOUS, 6, VARIOUS), {},
+    def test_args_at_end(self):
+        self.true((1, 2, ARGS), {}, (1, 2), {})
+        self.true((1, 2, ARGS), {}, (1, 2, 3, 4), {})
+        self.true((1, 2, ARGS), {"a": 1}, (1, 2), {"a": 1})
+        self.false((1, 2, ARGS), {"a": 1}, (1, 2, 3, 4), {"a": 1, "b": 2})
+        self.false((1, 2, ARGS), {}, (), {})
+        self.false((1, 2, ARGS), {}, (1, 3), {})
+        self.false((1, 2, ARGS), {}, (3, 3), {})
+        self.false((1, 2, ARGS), {"a": 1}, (), {})
+        self.false((1, 2, ARGS), {"a": 1}, (1, 2), {})
+        self.false((1, 2, ARGS), {"a": 1}, (1, 2), {"b": 2})
+
+    def test_args_at_middle(self):
+        self.true((1, ARGS, 4), {}, (1, 4), {})
+        self.true((1, ARGS, 4), {}, (1, 2, 3, 4), {})
+        self.true((1, ARGS, 4), {"a": 1}, (1, 4), {"a": 1})
+        self.false((1, ARGS, 4), {"a": 1}, (1, 2, 3, 4), {"a": 1, "b": 2})
+        self.false((1, ARGS, 4), {}, (), {})
+        self.false((1, ARGS, 4), {}, (1, 5), {})
+        self.false((1, ARGS, 4), {}, (5, 5), {})
+        self.false((1, ARGS, 4), {"a": 1}, (), {})
+        self.false((1, ARGS, 4), {"a": 1}, (1, 4), {})
+        self.false((1, ARGS, 4), {"a": 1}, (1, 4), {"b": 2})
+
+    def test_args_multiple(self):
+        self.true((ARGS, 3, ARGS, 6, ARGS), {},
                   (1, 2, 3, 4, 5, 6), {})
-        self.true((VARIOUS, VARIOUS, VARIOUS), {}, (1, 2, 3, 4, 5, 6), {})
-        self.true((VARIOUS, VARIOUS, VARIOUS), {},  (), {})
-        self.false((VARIOUS, 3, VARIOUS, 6, VARIOUS), {},
+        self.true((ARGS, ARGS, ARGS), {}, (1, 2, 3, 4, 5, 6), {})
+        self.true((ARGS, ARGS, ARGS), {},  (), {})
+        self.false((ARGS, 3, ARGS, 6, ARGS), {},
                    (1, 2, 3, 4, 5), {})
-        self.false((VARIOUS, 3, VARIOUS, 6, VARIOUS), {},
+        self.false((ARGS, 3, ARGS, 6, ARGS), {},
                    (1, 2, 4, 5, 6), {})
 
 
@@ -1055,95 +1313,150 @@ class MockTest(unittest.TestCase):
             def act(path):
                 self.paths.append(path)
                 return 42
+        self.StubMocker = StubMocker
         self.mocker = StubMocker()
-        self.obj = Mock(self.mocker)
+        self.mock = Mock(self.mocker)
 
-    def test_mocker(self):
-        self.assertEquals(self.obj.__mocker__, self.mocker)
-        self.assertEquals(self.obj.__mocker_name__, None)
-
-    def test_default_path(self):
-        path = self.obj.__mocker_path__
-        self.assertEquals(path.root_mock, self.obj)
-        self.assertEquals(path.actions, ())
+    def test_default_attributes(self):
+        self.assertEquals(self.mock.__mocker__, self.mocker)
+        self.assertEquals(self.mock.__mocker_path__, Path(self.mock))
+        self.assertEquals(self.mock.__mocker_name__, None)
+        self.assertEquals(self.mock.__mocker_spec__, None)
+        self.assertEquals(self.mock.__mocker_type__, None)
+        self.assertEquals(self.mock.__mocker_object__, None)
+        self.assertEquals(self.mock.__mocker_passthrough__, False)
+        self.assertEquals(self.mock.__mocker_patcher__, None)
+        self.assertEquals(self.mock.__mocker_replace__, False)
 
     def test_path(self):
         path = object()
         self.assertEquals(Mock(self.mocker, path).__mocker_path__, path)
 
     def test_object(self):
-        obj = Mock(self.mocker, object="foo")
-        self.assertEquals(obj.__mocker_object__, "foo")
+        mock = Mock(self.mocker, object="foo")
+        self.assertEquals(mock.__mocker_object__, "foo")
+        self.assertEquals(mock.__mocker_path__.root_object, "foo")
 
     def test_passthrough(self):
-        obj = Mock(self.mocker, object="foo", passthrough=True)
-        self.assertEquals(obj.__mocker_object__, "foo")
-        self.assertEquals(obj.__mocker_passthrough__, True)
+        mock = Mock(self.mocker, object="foo", passthrough=True)
+        self.assertEquals(mock.__mocker_object__, "foo")
+        self.assertEquals(mock.__mocker_passthrough__, True)
+
+    def test_spec(self):
+        C = object()
+        self.assertEquals(Mock(self.mocker, spec=C).__mocker_spec__, C)
+
+    def test_type(self):
+        def raise_exception(self, path):
+            raise MatchError
+        self.StubMocker.act = raise_exception
+        class C(object): pass
+        mock = Mock(self.mocker, type=C)
+        self.assertEquals(mock.__mocker_type__, C)
+        self.assertEquals(mock.__class__, C)
+        self.assertEquals(isinstance(mock, C), True)
 
     def test_auto_naming(self):
-        named_obj = self.obj
-        named_obj.attr
-        another_name = named_obj
-        named_obj = None # Can't find this one anymore.
+        named_mock = self.mock
+        named_mock.attr
+        another_name = named_mock
+        named_mock = None # Can't find this one anymore.
         another_name.attr
-        self.assertEquals(another_name.__mocker_name__, "named_obj")
+        self.assertEquals(another_name.__mocker_name__, "named_mock")
 
     def test_auto_naming_on_self(self):
-        self.named_obj = self.obj
-        del self.obj
-        self.named_obj.attr
-        self.assertEquals(self.named_obj.__mocker_name__, "named_obj")
+        self.named_mock = self.mock
+        del self.mock
+        self.named_mock.attr
+        self.assertEquals(self.named_mock.__mocker_name__, "named_mock")
 
     def test_auto_naming_on_bad_self(self):
         self_ = self
         self = object() # No __dict__
-        self_.named_obj = self_.obj
-        self_.named_obj.attr
-        self_.assertEquals(self_.named_obj.__mocker_name__, None)
+        self_.named_mock = self_.mock
+        self_.named_mock.attr
+        self_.assertEquals(self_.named_mock.__mocker_name__, None)
 
     def test_auto_naming_without_getframe(self):
         getframe = sys._getframe
         sys._getframe = None
         try:
-            self.named_obj = self.obj
-            self.named_obj.attr
-            self.assertEquals(self.named_obj.__mocker_name__, None)
+            self.named_mock = self.mock
+            self.named_mock.attr
+            self.assertEquals(self.named_mock.__mocker_name__, None)
         finally:
             sys._getframe = getframe
 
     def test_getattr(self):
-        self.assertEquals(self.obj.attr, 42)
+        self.assertEquals(self.mock.attr, 42)
         (path,) = self.paths
         self.assertEquals(type(path), Path)
-        self.assertTrue(path.parent_path is self.obj.__mocker_path__)
-        self.assertEquals(path, self.obj.__mocker_path__ + 
-                                Action(None, "getattr", ("attr",), {}))
+        self.assertTrue(path.parent_path is self.mock.__mocker_path__)
+        self.assertEquals(path, self.mock.__mocker_path__ + 
+                                Action("getattr", ("attr",), {}))
 
     def test_call(self):
-        self.obj(1, a=2)
+        self.mock(1, a=2)
         (path,) = self.paths
         self.assertEquals(type(path), Path)
-        self.assertTrue(path.parent_path is self.obj.__mocker_path__)
-        self.assertEquals(path, self.obj.__mocker_path__ + 
-                                Action(None, "call", (1,), {"a": 2}))
+        self.assertTrue(path.parent_path is self.mock.__mocker_path__)
+        self.assertEquals(path, self.mock.__mocker_path__ + 
+                                Action("call", (1,), {"a": 2}))
 
     def test_passthrough_on_unexpected(self):
         class StubMocker(object):
             def act(self, path):
                 if path.actions[-1].args == ("x",):
-                    raise UnexpectedExprError
+                    raise MatchError
                 return 42
         class C(object):
             x = 123
             y = 321
 
-        obj = Mock(StubMocker(), object=C())
-        self.assertRaises(UnexpectedExprError, getattr, obj, "x", 42)
-        self.assertEquals(obj.y, 42)
+        mock = Mock(StubMocker(), object=C())
+        self.assertRaises(MatchError, getattr, mock, "x", 42)
+        self.assertEquals(mock.y, 42)
 
-        obj = Mock(StubMocker(), object=C(), passthrough=True)
-        self.assertEquals(obj.x, 123)
-        self.assertEquals(obj.y, 42)
+        mock = Mock(StubMocker(), passthrough=True)
+        self.assertRaises(MatchError, getattr, mock, "x", 42)
+        self.assertEquals(mock.y, 42)
+
+        mock = Mock(StubMocker(), object=C(), passthrough=True)
+        self.assertEquals(mock.x, 123)
+        self.assertEquals(mock.y, 42)
+
+        mock = Mock(StubMocker(), passthrough=True)
+        act = mock.__mocker_act__
+        self.assertEquals(act("getattr", ("x",), 42, object=C()), 123)
+        self.assertEquals(act("getattr", ("y",), 42, object=C()), 42)
+
+    def test_act_with_object(self):
+        obj = object()
+        self.mock.__mocker_act__("kind", object=obj)
+        (path,) = self.paths
+        self.assertEquals(type(path), Path)
+        self.assertTrue(path.parent_path is self.mock.__mocker_path__)
+        self.assertTrue(path.root_object is obj)
+
+    def test_reraise_assertion(self):
+        class StubMocker(object):
+            def act(self, path):
+                message = os.linesep.join(["An", "- error", "- happened"])
+                raise AssertionError(message)
+        mock = Mock(StubMocker())
+        try:
+            mock.__mocker_act__("kind")
+        except AssertionError, e:
+            message = os.linesep.join(["[Mocker] Unmet expectation:",
+                                       "",
+                                       "=> An",
+                                       " - error",
+                                       " - happened",
+                                       ""])
+            self.assertEquals(str(e), message)
+        else:
+            self.fail("AssertionError not raised")
+
 
 
 class EventTest(unittest.TestCase):
@@ -1220,9 +1533,32 @@ class EventTest(unittest.TestCase):
         self.assertEquals(self.event.run(42), False)
         self.assertEquals(calls, [42, 42, 42])
 
+    def test_run_errors(self):
+        class MyTask(object):
+            def __init__(self, id, failed):
+                self.id = id
+                self.failed = failed
+            def run(self, path):
+                if self.failed:
+                    raise AssertionError("%d failed" % self.id)
+        event = Event("i.am.a.path")
+        event.add_task(MyTask(1, True))
+        event.add_task(MyTask(2, False))
+        event.add_task(MyTask(3, True))
+
+        try:
+            event.run(42)
+        except AssertionError, e:
+            message = os.linesep.join(["i.am.a.path",
+                                       "- 1 failed",
+                                       "- 3 failed"])
+            self.assertEquals(str(e), message)
+        else:
+            self.fail("AssertionError not raised")
+
     def test_satisfied_false(self):
         def raise_error():
-            raise AssertionError
+            raise AssertionError("An error")
         task1 = self.event.add_task(Task())
         task2 = self.event.add_task(Task())
         task2.verify = raise_error
@@ -1237,13 +1573,27 @@ class EventTest(unittest.TestCase):
         self.assertEquals(self.event.satisfied(), True)
 
     def test_verify(self):
-        calls = []
-        task1 = self.event.add_task(Task())
-        task1.verify = lambda: calls.append(1)
-        task2 = self.event.add_task(Task())
-        task2.verify = lambda: calls.append(2)
-        self.event.verify()
-        self.assertEquals(calls, [1, 2])
+        class MyTask(object):
+            def __init__(self, id, failed):
+                self.id = id
+                self.failed = failed
+            def verify(self):
+                if self.failed:
+                    raise AssertionError("%d failed" % self.id)
+        event = Event("i.am.a.path")
+        event.add_task(MyTask(1, True))
+        event.add_task(MyTask(2, False))
+        event.add_task(MyTask(3, True))
+
+        try:
+            event.verify()
+        except AssertionError, e:
+            message = os.linesep.join(["i.am.a.path",
+                                       "- 1 failed",
+                                       "- 3 failed"])
+            self.assertEquals(str(e), message)
+        else:
+            self.fail("AssertionError not raised")
 
     def test_set_state(self):
         calls = []
@@ -1277,7 +1627,7 @@ class PathMatcherTest(unittest.TestCase):
 
     def setUp(self):
         self.mocker = CleanMocker()
-        self.mock = self.mocker.obj()
+        self.mock = self.mocker.mock()
 
     def test_is_task(self):
         self.assertTrue(isinstance(PathMatcher(None), Task))
@@ -1288,15 +1638,15 @@ class PathMatcherTest(unittest.TestCase):
         self.assertEquals(task.path, path)
 
     def test_matches(self):
-        path = Path(self.mock, [Action(None, "getattr", ("attr1",), {})])
+        path = Path(self.mock, None, [Action("getattr", ("attr1",), {})])
         task = PathMatcher(path)
-        action = Action(Path(self.mock), "getattr", (), {})
+        action = Action("getattr", (), {}, Path(self.mock))
         self.assertFalse(task.matches(action.path + action))
-        action = Action(Path(self.mock), "getattr", ("attr1",), {})
+        action = Action("getattr", ("attr1",), {}, Path(self.mock))
         self.assertTrue(task.matches(action.path + action))
 
     def test_recorder(self):
-        path = Path(self.mock, [Action(None, "call", (), {})])
+        path = Path(self.mock, [Action("call", (), {})])
         event = Event(path)
         path_matcher_recorder(self.mocker, event)
         (task,) = event.get_tasks()
@@ -1311,8 +1661,8 @@ class RunCounterTest(unittest.TestCase):
 
     def setUp(self):
         self.mocker = CleanMocker()
-        self.mock = self.mocker.obj()
-        self.action = Action(Path(self.mock), "getattr", ("attr",), {})
+        self.mock = self.mocker.mock()
+        self.action = Action("getattr", ("attr",), {}, Path(self.mock))
         self.path = Path(self.mock, [self.action])
         self.event = Event(self.path)
 
@@ -1387,10 +1737,10 @@ class RunCounterTest(unittest.TestCase):
         may be repeated any number of times.
         """
         path1 = Path(self.mock)
-        path2 = path1 + Action(path1, "getattr", ("attr",), {})
-        path3 = path2 + Action(path2, "getattr", ("attr",), {})
-        path4 = path3 + Action(path3, "call", (), {})
-        path5 = path4 + Action(path4, "call", (), {})
+        path2 = path1 + Action("getattr", ("attr",), {}, path1)
+        path3 = path2 + Action("getattr", ("attr",), {}, path2)
+        path4 = path3 + Action("call", (), {}, path3)
+        path5 = path4 + Action("call", (), {}, path4)
 
         event3 = self.mocker.add_event(Event(path3))
         event2 = self.mocker.add_event(Event(path2))
@@ -1437,7 +1787,7 @@ class RunCounterTest(unittest.TestCase):
         self.mocker.add_recorder(run_counter_recorder)
         self.mocker.add_recorder(run_counter_removal_recorder)
 
-        obj = self.mocker.obj()
+        obj = self.mocker.mock()
 
         obj.x.y()()
 
@@ -1457,8 +1807,8 @@ class MockReturnerTest(unittest.TestCase):
 
     def setUp(self):
         self.mocker = CleanMocker()
-        self.mock = self.mocker.obj()
-        self.action = Action(Path(self.mock), "getattr", ("attr",), {})
+        self.mock = self.mocker.mock()
+        self.action = Action("getattr", ("attr",), {}, Path(self.mock))
         self.path = Path(self.mock, [self.action])
         self.event = Event(self.path)
 
@@ -1474,9 +1824,9 @@ class MockReturnerTest(unittest.TestCase):
 
     def test_recorder(self):
         path1 = Path(self.mock)
-        path2 = path1 + Action(path1, "getattr", ("attr",), {})
-        path3 = path2 + Action(path2, "getattr", ("attr",), {})
-        path4 = path3 + Action(path3, "call", (), {})
+        path2 = path1 + Action("getattr", ("attr",), {}, path1)
+        path3 = path2 + Action("getattr", ("attr",), {}, path2)
+        path4 = path3 + Action("call", (), {}, path3)
 
         event2 = self.mocker.add_event(Event(path2))
         event3 = self.mocker.add_event(Event(path3))
@@ -1514,9 +1864,9 @@ class FunctionRunnerTest(unittest.TestCase):
 
     def setUp(self):
         self.mocker = CleanMocker()
-        self.mock = self.mocker.obj()
-        self.action = Action(Path(self.mock), "call", (1, 2), {"c": 3})
-        self.path = Path(self.mock, [self.action])
+        self.mock = self.mocker.mock()
+        self.action = Action("call", (1, 2), {"c": 3}, Path(self.mock))
+        self.path = Path(self.mock, None, [self.action])
         self.event = Event(self.path)
 
     def test_is_task(self):
@@ -1528,13 +1878,13 @@ class FunctionRunnerTest(unittest.TestCase):
         self.assertEquals(result, "((1, 2), {'c': 3})")
 
 
-class PathApplierTest(unittest.TestCase):
+class PathExecuterTest(unittest.TestCase):
 
     def setUp(self):
         self.mocker = CleanMocker()
 
     def test_is_task(self):
-        self.assertTrue(isinstance(PathApplier(), Task))
+        self.assertTrue(isinstance(PathExecuter(), Task))
 
     def test_run(self):
         class C(object):
@@ -1543,13 +1893,11 @@ class PathApplierTest(unittest.TestCase):
         obj.x = C()
         obj.x.y = lambda a, b: a+b
 
-        proxy = self.mocker.proxy(obj)
+        path = Path(None, obj, [Action("getattr", ("x",), {}),
+                                Action("getattr", ("y",), {}),
+                                Action("call", (1,), {"b": 2})])
 
-        path = Path(proxy, [Action(None, "getattr", ("x",), {}),
-                            Action(None, "getattr", ("y",), {}),
-                            Action(None, "call", (1,), {"b": 2})])
-
-        task = PathApplier()
+        task = PathExecuter()
         self.assertEquals(task.run(path), 3)
 
 
@@ -1557,8 +1905,8 @@ class OrdererTest(unittest.TestCase):
 
     def setUp(self):
         self.mocker = CleanMocker()
-        self.mock = self.mocker.obj()
-        self.action = Action(Path(self.mock), "call", (1, 2), {"c": 3})
+        self.mock = self.mocker.mock()
+        self.action = Action("call", (1, 2, Path(self.mock)), {"c": 3})
         self.path = Path(self.mock, [self.action])
 
     def test_is_task(self):
@@ -1605,10 +1953,10 @@ class SpecCheckerTest(unittest.TestCase):
             def staticnoargs(): pass
         self.cls = C
         self.mocker = CleanMocker()
-        self.mock = self.mocker.obj(self.cls)
+        self.mock = self.mocker.mock(self.cls)
 
     def path(self, *args, **kwargs):
-        action = Action(Path(self.mock), "call", args, kwargs)
+        action = Action("call", args, kwargs, Path(self.mock))
         return action.path + action
 
     def good(self, method_names, args_expr):
@@ -1647,9 +1995,19 @@ class SpecCheckerTest(unittest.TestCase):
     def test_is_task(self):
         self.assertTrue(isinstance(SpecChecker(self.cls.normal), Task))
 
+    def test_error_message(self):
+        task = SpecChecker(self.cls.normal)
+        try:
+            task.run(self.path(1))
+        except AssertionError, e:
+            self.assertEquals(str(e), "Specification is normal(a, b, c=3): "
+                                      "'b' not provided")
+        else:
+            self.fail("AssertionError not raised")
+
     def test_recorder(self):
         self.mocker.add_recorder(spec_checker_recorder)
-        obj = self.mocker.obj(self.cls)
+        obj = self.mocker.mock(spec=self.cls)
         obj.noargs()
         getattr, call = self.mocker.get_events()
         self.assertEquals(getattr.get_tasks(), [])
@@ -1659,7 +2017,7 @@ class SpecCheckerTest(unittest.TestCase):
 
     def test_recorder_with_unexistent_method(self):
         self.mocker.add_recorder(spec_checker_recorder)
-        obj = self.mocker.obj(self.cls)
+        obj = self.mocker.mock(spec=self.cls)
         obj.unexistent()
         getattr, call = self.mocker.get_events()
         self.assertEquals(getattr.get_tasks(), [])
@@ -1669,7 +2027,7 @@ class SpecCheckerTest(unittest.TestCase):
 
     def test_recorder_second_action_isnt_call(self):
         self.mocker.add_recorder(spec_checker_recorder)
-        obj = self.mocker.obj(self.cls)
+        obj = self.mocker.mock(spec=self.cls)
         obj.noargs.x
         event1, event2 = self.mocker.get_events()
         self.assertEquals(event1.get_tasks(), [])
@@ -1677,7 +2035,7 @@ class SpecCheckerTest(unittest.TestCase):
 
     def test_recorder_first_action_isnt_getattr(self):
         self.mocker.add_recorder(spec_checker_recorder)
-        obj = self.mocker.obj(self.cls)
+        obj = self.mocker.mock(spec=self.cls)
         obj("noargs").x
         event1, event2 = self.mocker.get_events()
         self.assertEquals(event1.get_tasks(), [])
@@ -1685,7 +2043,7 @@ class SpecCheckerTest(unittest.TestCase):
 
     def test_recorder_more_than_two_actions(self):
         self.mocker.add_recorder(spec_checker_recorder)
-        obj = self.mocker.obj(self.cls)
+        obj = self.mocker.mock(spec=self.cls)
         obj.noargs().x
         event1, event2, event3 = self.mocker.get_events()
         self.assertEquals(len(event1.get_tasks()), 0)
@@ -1742,23 +2100,23 @@ class SpecCheckerTest(unittest.TestCase):
         self.bad("unexistent", "")
 
 
-class ProxyInstallerTest(unittest.TestCase):
+class ProxyReplacerTest(unittest.TestCase):
 
     def setUp(self):
         self.mocker = CleanMocker()
         import calendar
         self.mock = Mock(self.mocker, object=calendar)
-        self.task = ProxyInstaller(self.mock)
+        self.task = ProxyReplacer(self.mock)
 
     def tearDown(self):
         self.task.set_state(RESTORE)
 
     def test_is_task(self):
-        self.assertTrue(isinstance(ProxyInstaller(None), Task))
+        self.assertTrue(isinstance(ProxyReplacer(None), Task))
 
     def test_mock(self):
         mock = object()
-        task = ProxyInstaller(mock)
+        task = ProxyReplacer(mock)
         self.assertEquals(task.mock, mock)
 
     def test_matches_nothing(self):
@@ -1778,10 +2136,26 @@ class ProxyInstallerTest(unittest.TestCase):
         self.task.set_state(REPLAY)
         self.assertEquals(type(self.mock.__mocker_object__), ModuleType)
 
+    def test_install_protects_path(self):
+        self.task.set_state(REPLAY)
+        self.assertEquals(type(self.mock.__mocker_path__.root_object),
+                          ModuleType)
+
     def test_deinstall_protects_task(self):
         self.task.set_state(REPLAY)
         self.task.set_state(RESTORE)
         self.assertEquals(type(self.task.mock), Mock)
+
+    def test_install_protects_anything_with_mocker_replace_false(self):
+        class C(object):
+            def __init__(self):
+                import calendar
+                self.calendar = calendar
+                self.__mocker_replace__ = False
+        obj = C()
+        self.task.set_state(REPLAY)
+        self.assertEquals(type(self.mock.__mocker_path__.root_object),
+                          ModuleType)
 
     def test_install_on_object(self):
         class C(object):
@@ -1796,7 +2170,7 @@ class ProxyInstallerTest(unittest.TestCase):
     def test_install_on_submodule(self):
         from os import path
         mock = Mock(self.mocker, object=path)
-        task = ProxyInstaller(mock)
+        task = ProxyReplacer(mock)
         task.set_state(REPLAY)
         import os
         self.assertEquals(type(os.path), Mock)
@@ -1830,11 +2204,314 @@ class ProxyInstallerTest(unittest.TestCase):
     def test_deinstall_from_submodule(self):
         from os import path
         mock = Mock(self.mocker, object=path)
-        task = ProxyInstaller(mock)
+        task = ProxyReplacer(mock)
         task.set_state(REPLAY)
         task.set_state(RESTORE)
         import os
         self.assertEquals(type(os.path), ModuleType)
+
+
+class PatcherTest(unittest.TestCase):
+
+    def setUp(self):
+        self.mocker = Mocker()
+        self.patcher = Patcher()
+        self.C = type("C", (object,), {})
+        self.D = type("D", (self.C,), {})
+        self.E = type("E", (), {})
+
+        class MockStub(object):
+            def __mocker_act__(self, kind, args=(), kwargs={}, object=None):
+                return (kind, args, kwargs, object)
+
+        self.MockStub = MockStub
+
+    def test_is_task(self):
+        self.assertTrue(isinstance(Patcher(), Task))
+
+    def test_matches_nothing(self):
+        self.assertFalse(self.patcher.matches(None))
+
+    def test_is_monitoring_unseen_class_kind(self):
+        self.assertFalse(self.patcher.is_monitoring(self.C, "kind"))
+
+    def test_monitor_class(self):
+        self.patcher.monitor(self.C, "kind")
+        self.assertTrue(self.patcher.is_monitoring(self.C, "kind"))
+
+    def test_monitor_subclass(self):
+        self.patcher.monitor(self.C, "kind")
+        self.assertTrue(self.patcher.is_monitoring(self.D, "kind"))
+
+    def test_monitor_unknown_class(self):
+        self.patcher.monitor(self.C, "kind")
+        self.assertFalse(self.patcher.is_monitoring(self.E, "kind"))
+
+    def test_is_monitoring_unseen_instance(self):
+        obj = self.E()
+        self.patcher.monitor(self.C, "kind")
+        self.assertFalse(self.patcher.is_monitoring(obj, "kind"))
+
+    def test_is_monitoring_instance_explicitly_monitored(self):
+        obj = self.C()
+        self.patcher.monitor(obj, "kind")
+        self.assertTrue(self.patcher.is_monitoring(obj, "kind"))
+
+    def test_is_monitoring_instance_monitored_by_class(self):
+        obj = self.D()
+        self.patcher.monitor(self.D, "kind")
+        self.assertTrue(self.patcher.is_monitoring(obj, "kind"))
+
+    def test_patch_attr(self):
+        self.patcher.patch_attr(self.C, "attr", "patch")
+        self.assertEquals(self.C.__dict__.get("attr"), "patch")
+
+    def test_patch_attr_and_restore(self):
+        self.patcher.patch_attr(self.C, "attr", "patch")
+        self.patcher.set_state(RESTORE)
+        self.assertTrue("attr" not in self.C.__dict__)
+
+    def test_patch_attr_and_restore_to_original(self):
+        self.C.attr = "original"
+        self.patcher.patch_attr(self.C, "attr", "patch")
+        self.patcher.set_state(RESTORE)
+        self.assertEquals(self.C.__dict__.get("attr"), "original")
+
+    def test_get_unpatched_attr_unpatched_undefined(self):
+        self.assertEquals(self.patcher.get_unpatched_attr(self.C, "attr"),
+                          Undefined)
+
+    def test_get_unpatched_attr_unpatched(self):
+        self.C.attr = "original"
+        self.assertEquals(self.patcher.get_unpatched_attr(self.C, "attr"),
+                          "original")
+
+    def test_get_unpatched_attr_defined_on_superclass(self):
+        self.C.attr = "original"
+        self.assertEquals(self.patcher.get_unpatched_attr(self.D, "attr"),
+                          "original")
+
+    def test_get_unpatched_attr_defined_on_superclass_patched_on_sub(self):
+        self.C.attr = "original"
+        self.patcher.patch_attr(self.D, "attr", "patch")
+        self.assertEquals(self.patcher.get_unpatched_attr(self.D, "attr"),
+                          "original")
+
+    def test_get_unpatched_attr_patched_originally_undefined(self):
+        self.patcher.patch_attr(self.C, "attr", "patch")
+        self.assertEquals(self.patcher.get_unpatched_attr(self.C, "attr"),
+                          Undefined)
+
+    def test_get_unpatched_attr_patched(self):
+        self.C.attr = "original"
+        self.patcher.patch_attr(self.C, "attr", "patch")
+        self.assertEquals(self.patcher.get_unpatched_attr(self.C, "attr"),
+                          "original")
+
+    def test_get_unpatched_attr_on_instance_originally_undefined(self):
+        self.assertEquals(self.patcher.get_unpatched_attr(self.C(), "attr"),
+                          Undefined)
+
+    def test_get_unpatched_attr_on_instance(self):
+        self.C.attr = "original"
+        self.assertEquals(self.patcher.get_unpatched_attr(self.D(), "attr"),
+                          "original")
+
+    def test_get_unpatched_attr_on_instance_defined_on_superclass(self):
+        self.C.attr = "original"
+        self.patcher.patch_attr(self.C, "attr", "patch")
+        self.assertEquals(self.patcher.get_unpatched_attr(self.D(), "attr"),
+                          "original")
+
+    def test_get_unpatched_attr_on_instance_with_descriptor(self):
+        self.C.attr = property(lambda self: "original")
+        self.patcher.patch_attr(self.C, "attr", "patch")
+        self.assertEquals(self.patcher.get_unpatched_attr(self.D(), "attr"),
+                          "original")
+
+    def test_get_unpatched_attr_on_instance_with_fake_descriptor(self):
+        class BadProperty(object):
+            def __init__(self):
+                # On real, __get__ must be on the class, not on the instance.
+                self.__get__ = lambda self, obj, cls=None: "original"
+        prop = BadProperty()
+        self.C.attr = prop
+        self.patcher.patch_attr(self.C, "attr", "patch")
+        self.assertEquals(self.patcher.get_unpatched_attr(self.D(), "attr"),
+                          prop)
+
+    def test_replay_with_monitored_class(self):
+        self.patcher.monitor(self.C, "call")
+        self.patcher.set_state(REPLAY)
+        self.assertEquals(type(self.C.__dict__["__call__"]), PatchedMethod)
+
+    def test_replay_with_monitored_instance(self):
+        self.patcher.monitor(self.C(), "call")
+        self.patcher.set_state(REPLAY)
+        self.assertEquals(type(self.C.__dict__["__call__"]), PatchedMethod)
+
+    def test_replay_getattr(self):
+        self.patcher.monitor(self.C, "getattr")
+        self.patcher.set_state(REPLAY)
+        self.assertEquals(type(self.C.__dict__["__getattribute__"]),
+                          PatchedMethod)
+
+    def test_restore(self):
+        self.patcher.monitor(self.C, "call")
+        self.patcher.set_state(REPLAY)
+        self.patcher.set_state(RESTORE)
+        self.assertTrue("__call__" not in self.C.__dict__)
+
+    def test_restore_twice_does_nothing(self):
+        self.patcher.monitor(self.C, "call")
+        self.patcher.set_state(REPLAY)
+        self.patcher.set_state(RESTORE)
+        self.C.__call__ = "original"
+        self.patcher.set_state(RESTORE)
+        self.assertTrue(self.C.__dict__.get("__call__"), "original")
+
+    def test_patched_call_on_instance(self):
+        self.patcher.monitor(self.C, "call")
+        obj = self.C()
+        obj.__mocker_mock__ = self.MockStub()
+        self.patcher.set_state(REPLAY)
+        result = obj(1, a=2)
+        self.assertEquals(result, ("call", (1,), {"a": 2}, obj))
+
+    def test_patched_call_on_class(self):
+        self.patcher.monitor(self.C, "call")
+        self.C.__mocker_mock__ = self.MockStub()
+        self.patcher.set_state(REPLAY)
+        obj = self.C()
+        result = obj(1, a=2)
+        self.assertEquals(result, ("call", (1,), {"a": 2}, obj))
+
+    def test_patched_call_on_class_edge_case(self):
+        """Only "getattr" kind should passthrough on __mocker_* arguments."""
+        self.patcher.monitor(self.C, "call")
+        self.C.__mocker_mock__ = self.MockStub()
+        self.patcher.set_state(REPLAY)
+        obj = self.C()
+        result = obj("__mocker_mock__")
+        self.assertEquals(result, ("call", ("__mocker_mock__",), {}, obj))
+
+    def test_patched_getattr_on_class(self):
+        self.patcher.monitor(self.C, "getattr")
+        self.C.__mocker_mock__ = self.MockStub()
+        self.patcher.set_state(REPLAY)
+        obj = self.C()
+        result = obj.attr
+        self.assertEquals(result, ("getattr", ("attr",), {}, obj))
+
+    def test_patched_getattr_on_unmonitored_object(self):
+        obj1 = self.C()
+        obj1.__mocker_mock__ = self.MockStub()
+        self.patcher.monitor(obj1, "getattr")
+        obj2 = self.C()
+        obj2.attr = "original"
+        self.patcher.set_state(REPLAY)
+        self.assertEquals(obj1.attr, ("getattr", ("attr",), {}, obj1))
+        self.assertEquals(obj2.attr, "original")
+
+    def test_patched_getattr_on_different_instances(self):
+        def build_getattr(original):
+            def __getattribute__(self, name):
+                if name == "attr":
+                    return original
+                return object.__getattribute__(self, name)
+            return __getattribute__
+        self.C.__getattribute__ = build_getattr("originalC")
+        self.D.__getattribute__ = build_getattr("originalD")
+
+        class MockStub(object):
+            def __init__(self, id):
+                self.id = id
+            def __mocker_act__(self, kind, args=(), kwargs={}, object=None):
+                return self.id
+
+        obj1, obj2, obj3, obj4, obj5, obj6 = [self.C() for i in range(6)]
+        obj7, obj8, obj9 = [self.D() for i in range(3)]
+
+        obj2.__mocker_mock__ = MockStub(2)
+        self.patcher.monitor(obj2, "getattr")
+        obj5.__mocker_mock__ = MockStub(5)
+        self.patcher.monitor(obj5, "getattr")
+        obj8.__mocker_mock__ = MockStub(8)
+        self.patcher.monitor(obj8, "getattr")
+
+        self.patcher.set_state(REPLAY)
+        self.assertEquals(obj1.attr, "originalC")
+        self.assertEquals(obj2.attr, 2)
+        self.assertEquals(obj3.attr, "originalC")
+        self.assertEquals(obj4.attr, "originalC")
+        self.assertEquals(obj5.attr, 5)
+        self.assertEquals(obj6.attr, "originalC")
+        self.assertEquals(obj7.attr, "originalD")
+        self.assertEquals(obj8.attr, 8)
+        self.assertEquals(obj9.attr, "originalD")
+
+    def test_execute_getattr(self):
+        class C(object):
+            def __getattribute__(self, attr):
+                if attr == "attr":
+                    return "original"
+        action = Action("getattr", ("attr",), {})
+        obj = C()
+        self.patcher.monitor(obj, "getattr")
+        self.patcher.set_state(REPLAY)
+        self.assertEquals(self.patcher.execute(action, obj), "original")
+
+    def test_execute_getattr_on_unexistent(self):
+        action = Action("getattr", ("attr",), {})
+        obj = self.C()
+        self.patcher.monitor(obj, "getattr")
+        self.patcher.set_state(REPLAY)
+        self.assertRaises(AttributeError, self.patcher.execute, action, obj)
+
+    def test_execute_call(self):
+        class C(object):
+            def __call__(self, *args, **kwargs):
+                return (args, kwargs)
+        action = Action("call", (1,), {"a": 2})
+        obj = C()
+        self.patcher.monitor(obj, "call")
+        self.patcher.set_state(REPLAY)
+        self.assertEquals(self.patcher.execute(action, obj), ((1,), {"a": 2}))
+
+    def test_recorder_class_getattr(self):
+        mock = self.mocker.patch(self.C)
+        mock.method()
+        self.mocker.result("mocked")
+        self.mocker.replay()
+        self.assertEquals(self.C().method(), "mocked")
+        self.assertRaises(AssertionError, self.C().method)
+
+    def test_recorder_instance_getattr(self):
+        self.C.attr = "original"
+        obj1 = self.C()
+        obj2 = self.C()
+        mock = self.mocker.patch(obj1)
+        mock.attr
+        self.mocker.result("mocked")
+        self.mocker.replay()
+        self.assertEquals(obj1.attr, "mocked")
+        self.assertRaises(AssertionError, getattr, obj1, "attr")
+        self.assertEquals(obj2.attr, "original")
+        self.assertRaises(AttributeError, getattr, obj1, "unexistent")
+
+    def test_recorder_passthrough(self):
+        class C(object):
+            def __init__(self):
+                self.result = "original" # Value on object's dictionary.
+            def method(self):
+                return self.result
+        mock = self.mocker.patch(C)
+        mock.method()
+        self.mocker.passthrough()
+        self.mocker.replay()
+        obj = C()
+        self.assertEquals(obj.method(), "original")
+        self.assertRaises(AssertionError, obj.method)
 
 
 if __name__ == "__main__":
