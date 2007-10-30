@@ -26,11 +26,11 @@ class expect(object):
     """This is a simple helper that allows a different call-style.
 
     With this class one can comfortably do chaining of calls to the
-    mocker object responsible by the object being handler. For instance:
+    mocker object responsible by the object being handler. For instance::
 
         expect(obj.attr).result(3).count(1, 2)
 
-    Is the same as:
+    Is the same as::
 
         obj.attr
         mocker.result(3)
@@ -87,7 +87,7 @@ class MockerBase(object):
     Expectations should be expressed for the mock object while in
     record mode (the initial one) by using the mock object itself,
     and using the mocker (and/or C{expect()} as a helper) to define
-    additional behavior for each event.  For instance:
+    additional behavior for each event.  For instance::
 
         mock = mocker.mock()
         mock.hello()
@@ -523,9 +523,6 @@ class MockerBase(object):
     def order(self, *path_holders):
         """Ensure that events referred to by given objects happen in order.
 
-        @param *path_holders: Objects returned as the result of recorded
-                              events.
-
         As an example::
 
             mock = mocker.mock()
@@ -537,6 +534,8 @@ class MockerBase(object):
         This method of ordering only works when the expression returns
         another object.  For other methods of ordering check the
         L{ordered()}, L{after()}, and L{before()} methods.
+
+        @param path_holders: Objects returned as the result of recorded events.
         """
         last_orderer = None
         for path_holder in path_holders:
@@ -561,8 +560,7 @@ class MockerBase(object):
     def after(self, *path_holders):
         """Last recorded event must happen after events referred to.
 
-        @param *path_holders: Objects returned as the result of recorded
-                              events.
+        @param path_holders: Objects returned as the result of recorded events.
 
         See L{order()} for more information.
         """
@@ -573,8 +571,7 @@ class MockerBase(object):
     def before(self, *path_holders):
         """Last recorded event must happen before events referred to.
 
-        @param *path_holders: Objects returned as the result of recorded
-                              events.
+        @param path_holders: Objects returned as the result of recorded events.
 
         See L{order()} for more information.
         """
