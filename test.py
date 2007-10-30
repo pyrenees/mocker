@@ -12,8 +12,8 @@ from mocker import (
     run_counter_recorder, run_counter_removal_recorder, MockReturner,
     mock_returner_recorder, FunctionRunner, Orderer, SpecChecker,
     spec_checker_recorder, match_params, ANY, VARIOUS, SAME, CONTAINS,
-    ARGS, KWARGS, MatchError, PathExecuter, RECORD, REPLAY, RESTORE,
-    ProxyReplacer, Patcher, Undefined, PatchedMethod)
+    ARGS, KWARGS, MatchError, PathExecuter, ProxyReplacer, Patcher,
+    Undefined, PatchedMethod)
 
 
 class CleanMocker(MockerBase):
@@ -214,39 +214,31 @@ class MockerTest(unittest.TestCase):
                              Path(Mock(self.mocker, name="mock")))
         self.path = self.action.path + self.action
 
-    def test_default_state(self):
-        self.assertEquals(self.mocker.get_state(), RECORD)
+    def test_default_is_recording(self):
+        self.assertTrue(self.mocker.is_recording())
 
     def test_replay(self):
         calls = []
         event = self.mocker.add_event(Event())
         task = event.add_task(Task())
-        task.set_state = lambda state: calls.append(state)
+        task.replay = lambda: calls.append("replay")
+        task.restore = lambda: calls.append("restore")
         self.mocker.replay()
         self.mocker.replay()
-        self.assertEquals(self.mocker.get_state(), REPLAY)
-        self.assertEquals(calls, [REPLAY])
-
-    def test_record(self):
-        calls = []
-        event = self.mocker.add_event(Event())
-        task = event.add_task(Task())
-        task.set_state = lambda state: calls.append(state)
-        self.mocker.replay()
-        self.mocker.record()
-        self.mocker.record()
-        self.assertEquals(self.mocker.get_state(), RECORD)
-        self.assertEquals(calls, [REPLAY, RECORD])
+        self.assertFalse(self.mocker.is_recording())
+        self.assertEquals(calls, ["replay"])
 
     def test_restore(self):
         calls = []
         event = self.mocker.add_event(Event())
         task = event.add_task(Task())
-        task.set_state = lambda state: calls.append(state)
+        task.replay = lambda: calls.append("replay")
+        task.restore = lambda: calls.append("restore")
+        self.mocker.replay()
         self.mocker.restore()
         self.mocker.restore()
-        self.assertEquals(self.mocker.get_state(), RESTORE)
-        self.assertEquals(calls, [RESTORE])
+        self.assertTrue(self.mocker.is_recording())
+        self.assertEquals(calls, ["replay", "restore"])
 
     def test_verify(self):
         class MyEvent(object):
@@ -287,8 +279,10 @@ class MockerTest(unittest.TestCase):
                 calls.append("verify")
                 if throw:
                     raise AssertionError("Some problem")
-            def set_state(self, state):
-                calls.append({REPLAY: "replay", RESTORE: "restore"}[state])
+            def replay(self):
+                calls.append("replay")
+            def restore(self):
+                calls.append("restore")
 
         event = MyEvent()
         self.mocker.add_event(event)
@@ -1496,8 +1490,11 @@ class EventTest(unittest.TestCase):
     def test_default_verify(self):
         self.assertEquals(self.event.verify(), None)
 
+    def test_default_replay(self):
+        self.assertEquals(self.event.replay(), None)
+
     def test_default_restore(self):
-        self.assertEquals(self.event.set_state(None), None)
+        self.assertEquals(self.event.restore(), None)
 
     def test_matches_false(self):
         task1 = self.event.add_task(Task())
@@ -1595,14 +1592,23 @@ class EventTest(unittest.TestCase):
         else:
             self.fail("AssertionError not raised")
 
-    def test_set_state(self):
+    def test_replay(self):
         calls = []
         task1 = self.event.add_task(Task())
-        task1.set_state = lambda state: calls.append(state+1)
         task2 = self.event.add_task(Task())
-        task2.set_state = lambda state: calls.append(state+2)
-        self.event.set_state(3)
-        self.assertEquals(calls, [4, 5])
+        task1.replay = lambda: calls.append("task1")
+        task2.replay = lambda: calls.append("task2")
+        self.event.replay()
+        self.assertEquals(calls, ["task1", "task2"])
+
+    def test_restore(self):
+        calls = []
+        task1 = self.event.add_task(Task())
+        task2 = self.event.add_task(Task())
+        task1.restore = lambda: calls.append("task1")
+        task2.restore = lambda: calls.append("task2")
+        self.event.restore()
+        self.assertEquals(calls, ["task1", "task2"])
 
 
 class TaskTest(unittest.TestCase):
@@ -1619,8 +1625,11 @@ class TaskTest(unittest.TestCase):
     def test_default_verify(self):
         self.assertEquals(self.task.verify(), None)
 
-    def test_default_set_state(self):
-        self.assertEquals(self.task.set_state(None), None)
+    def test_default_replay(self):
+        self.assertEquals(self.task.replay(), None)
+
+    def test_default_restore(self):
+        self.assertEquals(self.task.restore(), None)
 
 
 class PathMatcherTest(unittest.TestCase):
@@ -2109,7 +2118,7 @@ class ProxyReplacerTest(unittest.TestCase):
         self.task = ProxyReplacer(self.mock)
 
     def tearDown(self):
-        self.task.set_state(RESTORE)
+        self.task.restore()
 
     def test_is_task(self):
         self.assertTrue(isinstance(ProxyReplacer(None), Task))
@@ -2127,23 +2136,23 @@ class ProxyReplacerTest(unittest.TestCase):
         self.assertEquals(type(calendar), ModuleType)
 
     def test_install(self):
-        self.task.set_state(REPLAY)
+        self.task.replay()
         import calendar
         self.assertEquals(type(calendar), Mock)
         self.assertTrue(calendar is self.mock)
 
     def test_install_protects_mock(self):
-        self.task.set_state(REPLAY)
+        self.task.replay()
         self.assertEquals(type(self.mock.__mocker_object__), ModuleType)
 
     def test_install_protects_path(self):
-        self.task.set_state(REPLAY)
+        self.task.replay()
         self.assertEquals(type(self.mock.__mocker_path__.root_object),
                           ModuleType)
 
     def test_deinstall_protects_task(self):
-        self.task.set_state(REPLAY)
-        self.task.set_state(RESTORE)
+        self.task.replay()
+        self.task.restore()
         self.assertEquals(type(self.task.mock), Mock)
 
     def test_install_protects_anything_with_mocker_replace_false(self):
@@ -2153,7 +2162,7 @@ class ProxyReplacerTest(unittest.TestCase):
                 self.calendar = calendar
                 self.__mocker_replace__ = False
         obj = C()
-        self.task.set_state(REPLAY)
+        self.task.replay()
         self.assertEquals(type(self.mock.__mocker_path__.root_object),
                           ModuleType)
 
@@ -2163,51 +2172,48 @@ class ProxyReplacerTest(unittest.TestCase):
                 import calendar
                 self.calendar = calendar
         obj = C()
-        self.task.set_state(REPLAY)
+        self.task.replay()
         self.assertEquals(type(obj.calendar), Mock)
         self.assertTrue(obj.calendar is self.mock)
 
     def test_install_on_submodule(self):
         from os import path
+        import os
         mock = Mock(self.mocker, object=path)
         task = ProxyReplacer(mock)
-        task.set_state(REPLAY)
-        import os
-        self.assertEquals(type(os.path), Mock)
-        self.assertTrue(os.path is mock)
+        task.replay()
+        try:
+            self.assertEquals(type(os.path), Mock)
+            self.assertTrue(os.path is mock)
+        finally:
+            task.restore()
 
-    def test_deinstall_on_restore(self):
-        self.task.set_state(REPLAY)
-        self.task.set_state(RESTORE)
+    def test_uninstall_on_restore(self):
+        self.task.replay()
+        self.task.restore()
         import calendar
         self.assertEquals(type(calendar), ModuleType)
         self.assertEquals(calendar.__name__, "calendar")
 
-    def test_deinstall_on_record(self):
-        self.task.set_state(REPLAY)
-        self.task.set_state(RECORD)
-        import calendar
-        self.assertEquals(type(calendar), ModuleType)
-        self.assertEquals(calendar.__name__, "calendar")
-
-    def test_deinstall_from_object(self):
+    def test_uninstall_from_object(self):
         class C(object):
             def __init__(self):
                 import calendar
                 self.calendar = calendar
         obj = C()
-        self.task.set_state(REPLAY)
-        self.task.set_state(RESTORE)
+        self.task.replay()
+        self.task.restore()
         self.assertEquals(type(obj.calendar), ModuleType)
         self.assertEquals(obj.calendar.__name__, "calendar")
 
-    def test_deinstall_from_submodule(self):
+    def test_uninstall_from_submodule(self):
         from os import path
+        import os
         mock = Mock(self.mocker, object=path)
         task = ProxyReplacer(mock)
-        task.set_state(REPLAY)
-        task.set_state(RESTORE)
-        import os
+        self.assertEquals(type(os.path), ModuleType)
+        task.replay()
+        task.restore()
         self.assertEquals(type(os.path), ModuleType)
 
 
@@ -2268,13 +2274,13 @@ class PatcherTest(unittest.TestCase):
 
     def test_patch_attr_and_restore(self):
         self.patcher.patch_attr(self.C, "attr", "patch")
-        self.patcher.set_state(RESTORE)
+        self.patcher.restore()
         self.assertTrue("attr" not in self.C.__dict__)
 
     def test_patch_attr_and_restore_to_original(self):
         self.C.attr = "original"
         self.patcher.patch_attr(self.C, "attr", "patch")
-        self.patcher.set_state(RESTORE)
+        self.patcher.restore()
         self.assertEquals(self.C.__dict__.get("attr"), "original")
 
     def test_get_unpatched_attr_unpatched_undefined(self):
@@ -2342,46 +2348,46 @@ class PatcherTest(unittest.TestCase):
 
     def test_replay_with_monitored_class(self):
         self.patcher.monitor(self.C, "call")
-        self.patcher.set_state(REPLAY)
+        self.patcher.replay()
         self.assertEquals(type(self.C.__dict__["__call__"]), PatchedMethod)
 
     def test_replay_with_monitored_instance(self):
         self.patcher.monitor(self.C(), "call")
-        self.patcher.set_state(REPLAY)
+        self.patcher.replay()
         self.assertEquals(type(self.C.__dict__["__call__"]), PatchedMethod)
 
     def test_replay_getattr(self):
         self.patcher.monitor(self.C, "getattr")
-        self.patcher.set_state(REPLAY)
+        self.patcher.replay()
         self.assertEquals(type(self.C.__dict__["__getattribute__"]),
                           PatchedMethod)
 
     def test_restore(self):
         self.patcher.monitor(self.C, "call")
-        self.patcher.set_state(REPLAY)
-        self.patcher.set_state(RESTORE)
+        self.patcher.replay()
+        self.patcher.restore()
         self.assertTrue("__call__" not in self.C.__dict__)
 
     def test_restore_twice_does_nothing(self):
         self.patcher.monitor(self.C, "call")
-        self.patcher.set_state(REPLAY)
-        self.patcher.set_state(RESTORE)
+        self.patcher.replay()
+        self.patcher.restore()
         self.C.__call__ = "original"
-        self.patcher.set_state(RESTORE)
+        self.patcher.restore()
         self.assertTrue(self.C.__dict__.get("__call__"), "original")
 
     def test_patched_call_on_instance(self):
         self.patcher.monitor(self.C, "call")
         obj = self.C()
         obj.__mocker_mock__ = self.MockStub()
-        self.patcher.set_state(REPLAY)
+        self.patcher.replay()
         result = obj(1, a=2)
         self.assertEquals(result, ("call", (1,), {"a": 2}, obj))
 
     def test_patched_call_on_class(self):
         self.patcher.monitor(self.C, "call")
         self.C.__mocker_mock__ = self.MockStub()
-        self.patcher.set_state(REPLAY)
+        self.patcher.replay()
         obj = self.C()
         result = obj(1, a=2)
         self.assertEquals(result, ("call", (1,), {"a": 2}, obj))
@@ -2390,7 +2396,7 @@ class PatcherTest(unittest.TestCase):
         """Only "getattr" kind should passthrough on __mocker_* arguments."""
         self.patcher.monitor(self.C, "call")
         self.C.__mocker_mock__ = self.MockStub()
-        self.patcher.set_state(REPLAY)
+        self.patcher.replay()
         obj = self.C()
         result = obj("__mocker_mock__")
         self.assertEquals(result, ("call", ("__mocker_mock__",), {}, obj))
@@ -2398,7 +2404,7 @@ class PatcherTest(unittest.TestCase):
     def test_patched_getattr_on_class(self):
         self.patcher.monitor(self.C, "getattr")
         self.C.__mocker_mock__ = self.MockStub()
-        self.patcher.set_state(REPLAY)
+        self.patcher.replay()
         obj = self.C()
         result = obj.attr
         self.assertEquals(result, ("getattr", ("attr",), {}, obj))
@@ -2409,7 +2415,7 @@ class PatcherTest(unittest.TestCase):
         self.patcher.monitor(obj1, "getattr")
         obj2 = self.C()
         obj2.attr = "original"
-        self.patcher.set_state(REPLAY)
+        self.patcher.replay()
         self.assertEquals(obj1.attr, ("getattr", ("attr",), {}, obj1))
         self.assertEquals(obj2.attr, "original")
 
@@ -2439,7 +2445,7 @@ class PatcherTest(unittest.TestCase):
         obj8.__mocker_mock__ = MockStub(8)
         self.patcher.monitor(obj8, "getattr")
 
-        self.patcher.set_state(REPLAY)
+        self.patcher.replay()
         self.assertEquals(obj1.attr, "originalC")
         self.assertEquals(obj2.attr, 2)
         self.assertEquals(obj3.attr, "originalC")
@@ -2458,14 +2464,14 @@ class PatcherTest(unittest.TestCase):
         action = Action("getattr", ("attr",), {})
         obj = C()
         self.patcher.monitor(obj, "getattr")
-        self.patcher.set_state(REPLAY)
+        self.patcher.replay()
         self.assertEquals(self.patcher.execute(action, obj), "original")
 
     def test_execute_getattr_on_unexistent(self):
         action = Action("getattr", ("attr",), {})
         obj = self.C()
         self.patcher.monitor(obj, "getattr")
-        self.patcher.set_state(REPLAY)
+        self.patcher.replay()
         self.assertRaises(AttributeError, self.patcher.execute, action, obj)
 
     def test_execute_call(self):
@@ -2475,7 +2481,7 @@ class PatcherTest(unittest.TestCase):
         action = Action("call", (1,), {"a": 2})
         obj = C()
         self.patcher.monitor(obj, "call")
-        self.patcher.set_state(REPLAY)
+        self.patcher.replay()
         self.assertEquals(self.patcher.execute(action, obj), ((1,), {"a": 2}))
 
     def test_recorder_class_getattr(self):

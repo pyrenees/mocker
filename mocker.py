@@ -73,11 +73,6 @@ class State(object):
         return self._name
 
 
-RECORD = State("RECORD")
-REPLAY = State("REPLAY")
-RESTORE = State("RESTORE")
-
-
 class MockerBase(object):
     """Controller of mock objects.
 
@@ -142,22 +137,16 @@ class MockerBase(object):
     def __init__(self):
         self._recorders = self._recorders[:]
         self._events = []
-        self._state = RECORD
+        self._recording = True
         self._ordering = False
         self._last_orderer = None
 
-    def _set_state(self, state):
-        if state is not self._state:
-            self._state = state
-            for event in self._events:
-                event.set_state(state)
+    def is_recording(self):
+        """Return True if in recording mode, False if in replay mode.
 
-    def get_state(self):
-        """Return the current state (RECORD, REPLAY or RESTORE).
-
-        The initial state is RECORD.
+        Recording is the initial state.
         """
-        return self._state
+        return self._recording
 
     def replay(self):
         """Change state to expect recorded events to be reproduced.
@@ -178,24 +167,23 @@ class MockerBase(object):
         Also check the MockerTestCase class, which integrates the
         unittest.TestCase class with mocker.
         """
-        self._set_state(REPLAY)
-
-    def record(self):
-        """Put the mocker on recording mode, where expectations are defined.
-        
-        That's the initial state when the mocker is constructed.
-        """
-        self._set_state(RECORD)
+        if self._recording:
+            self._recording = False
+            for event in self._events:
+                event.replay()
 
     def restore(self):
-        """Restore all changes done in the environment.
+        """Restore changes in the environment, and return to recording mode.
 
         This should always be called after the test is complete (succeeding
         or not).  There are ways to call this method automatically on
         completion (e.g. using a with mocker: statement, or using the
         MockerTestCase class.
         """
-        self._set_state(RESTORE)
+        if not self._recording:
+            self._recording = True
+            for event in self._events:
+                event.restore()
 
     def is_ordering(self):
         """Return true if all events are being ordered.
@@ -427,19 +415,16 @@ class MockerBase(object):
         This method is part of the implementation between the mocker
         and mock objects.
         """
-        if self._state is RECORD:
+        if self._recording:
             event = self.add_event(Event(path))
             for recorder in self._recorders:
                 recorder(self, event)
             return Mock(self, path)
-        elif self._state is REPLAY:
+        else:
             for event in sorted(self._events, key=lambda e:e.satisfied()):
                 if event.matches(path):
                     return event.run(path)
             raise MatchError(ERROR_PREFIX + "Unexpected expression: %s" % path)
-            # XXX Show the full state here.
-        else:
-            raise RuntimeError(ERROR_PREFIX + "Not in record or playback mode")
 
     @classinstancemethod
     def get_recorders(cls, self):
@@ -1086,21 +1071,23 @@ class Event(object):
                 message.extend("  " + line for line in lines)
             raise AssertionError(os.linesep.join(message))
 
-    def set_state(self, state):
-        """Change the task state of all tasks to reflect that of the mocker.
-
-        State is either REPLAY, RECORD, or RESTORE.
-        """
+    def replay(self):
+        """Put all tasks in replay mode."""
         for task in self._tasks:
-            task.set_state(state)
+            task.replay()
+
+    def restore(self):
+        """Restore the state of all tasks."""
+        for task in self._tasks:
+            task.restore()
 
 
 class Task(object):
-    """Minor item used for composition of a major task.
+    """Element used to track one specific aspect on an event.
 
-    A task item is responsible for adding any kind of logic to a
-    task.  Examples of that are counting the number of times the
-    task was made, verifying parameters if any, and so on.
+    A task is responsible for adding any kind of logic to an event.
+    Examples of that are counting the number of times the event was
+    made, verifying parameters if any, and so on.
     """
 
     def matches(self, path):
@@ -1121,11 +1108,18 @@ class Task(object):
         multiple times without side effects.
         """
 
-    def set_state(self, state):
-        """Perform actions needed to reflect state of the mocker.
+    def replay(self):
+        """Put the task in replay mode.
 
-        State is either REPLAY, RECORD, or RESTORE.
+        Any expectations of the task should be reset.
         """
+
+    def restore(self):
+        """Restore any environmental changes made by the task.
+
+        Verify should continue to work after this is called.
+        """
+
 
 # --------------------------------------------------------------------
 # Task implementations.
@@ -1344,11 +1338,11 @@ class ProxyReplacer(Task):
     def matches(self, path):
         return False
 
-    def set_state(self, state):
-        if state is REPLAY:
-            global_replace(self.mock.__mocker_object__, self.mock)
-        else:
-            global_replace(self.mock, self.mock.__mocker_object__)
+    def replay(self):
+        global_replace(self.mock.__mocker_object__, self.mock)
+
+    def restore(self):
+        global_replace(self.mock, self.mock.__mocker_object__)
 
 
 def global_replace(remove, install):
@@ -1427,30 +1421,30 @@ class Patcher(Task):
             return "__getattribute__"
         return "__%s__" % kind
 
-    def set_state(self, state):
-        if state is REPLAY:
-            for kind in self._monitored:
-                attr = self._get_kind_attr(kind)
-                seen = set()
-                for obj in self._monitored[kind].itervalues():
-                    cls = type(obj)
-                    if issubclass(cls, type):
-                        cls = obj
-                    if cls not in seen:
-                        seen.add(cls)
-                        unpatched = getattr(cls, attr, Undefined)
-                        self.patch_attr(cls, attr,
-                                        PatchedMethod(kind, unpatched,
-                                                      self.is_monitoring))
-                        self.patch_attr(cls, "__mocker_execute__",
-                                        self.execute)
-        else:
-            for obj, attr, original in self._patched.itervalues():
-                if original is Undefined:
-                    delattr(obj, attr)
-                else:
-                    setattr(obj, attr, original)
-            self._patched.clear()
+    def replay(self):
+        for kind in self._monitored:
+            attr = self._get_kind_attr(kind)
+            seen = set()
+            for obj in self._monitored[kind].itervalues():
+                cls = type(obj)
+                if issubclass(cls, type):
+                    cls = obj
+                if cls not in seen:
+                    seen.add(cls)
+                    unpatched = getattr(cls, attr, Undefined)
+                    self.patch_attr(cls, attr,
+                                    PatchedMethod(kind, unpatched,
+                                                  self.is_monitoring))
+                    self.patch_attr(cls, "__mocker_execute__",
+                                    self.execute)
+
+    def restore(self):
+        for obj, attr, original in self._patched.itervalues():
+            if original is Undefined:
+                delattr(obj, attr)
+            else:
+                setattr(obj, attr, original)
+        self._patched.clear()
 
     def execute(self, action, object):
         attr = self._get_kind_attr(action.kind)
