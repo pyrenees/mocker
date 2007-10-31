@@ -149,8 +149,11 @@ class MockerBase(object):
         return self._recording
 
     def replay(self):
-        """Change state to expect recorded events to be reproduced.
-        
+        """Change to replay mode, where recorded events are reproduced.
+
+        If already in replay mode, the mocker will be restored, with all
+        expectations reset, and then put again in replay mode.
+
         An alternative and more comfortable way to replay changes is
         using the 'with' statement, as follows::
 
@@ -167,61 +170,37 @@ class MockerBase(object):
         Also check the MockerTestCase class, which integrates the
         unittest.TestCase class with mocker.
         """
-        if self._recording:
-            self._recording = False
+        if not self._recording:
             for event in self._events:
-                event.replay()
+                event.restore()
+        else:
+            self._recording = False
+        for event in self._events:
+            event.replay()
 
     def restore(self):
         """Restore changes in the environment, and return to recording mode.
 
         This should always be called after the test is complete (succeeding
         or not).  There are ways to call this method automatically on
-        completion (e.g. using a with mocker: statement, or using the
-        MockerTestCase class.
+        completion (e.g. using a C{with mocker:} statement, or using the
+        L{MockerTestCase} class.
         """
         if not self._recording:
             self._recording = True
             for event in self._events:
                 event.restore()
 
-    def is_ordering(self):
-        """Return true if all events are being ordered.
+    def reset(self):
+        """Reset the mocker state.
 
-        See the L{ordered()} method.
+        This will restore environment changes, if currently in replay
+        mode, and then remove all events previously recorded.
         """
-        return self._ordering
-
-    def ordered(self):
-        """Expect following events to be reproduced in the recorded order.
-
-        By default, mocker won't force events to happen precisely in
-        the order they were recorded.  Calling this method will change
-        this behavior so that events will only match if reproduced in
-        the correct order.
-
-        Running the L{unordered()} method will put the mocker back on
-        unordered mode.
-
-        This method may also be used with the 'with' statement, like so::
-
-            with mocker.ordered():
-                <record events>
-
-        In this case, only expressions in <record events> will be ordered,
-        and the mocker will be back in unordered mode after the 'with' block.
-        """
-        self._ordering = True
-        return OrderedContext(self)
-
-    def unordered(self):
-        """Don't expect following events to be reproduce in the recorded order.
-
-        This will undo the effect of the L{ordered()} method, putting the
-        mocker back in the default unordered mode.
-        """
-        self._ordering = False
-        self._last_orderer = None
+        if not self._recording:
+            self.restore()
+        self.unorder()
+        del self._events[:]
 
     def get_events(self):
         """Return all recorded events."""
@@ -371,10 +350,17 @@ class MockerBase(object):
         event.add_task(ProxyReplacer(mock))
         return mock
 
-    def patch(self, object):
+    def patch(self, object, spec=True):
         """Patch an existing object to reproduce recorded events.
 
         @param object: Class or instance to be patched.
+        @param spec: Method calls will be checked for correctness against
+                     the given object, which may be a class or an instance
+                     where attributes will be looked up.  Defaults to the
+                     the C{object} parameter.  May be set to None explicitly,
+                     in which case spec checking is disabled.  Checks may
+                     also be disabled explicitly on a per-event basis with
+                     the L{nospec()} method.
 
         The result of this method is still a mock object, which can be
         used like any other mock object to record events.  The difference
@@ -402,10 +388,13 @@ class MockerBase(object):
         (explicitly, or implicitly with alternative conventions, such as
         a C{with mocker:} block, or a MockerTestCase class).
         """
+        if spec is True:
+            spec = object
         patcher = Patcher()
         event = self.add_event(Event())
         event.add_task(patcher)
-        mock = Mock(self, object=object, patcher=patcher, passthrough=True)
+        mock = Mock(self, object=object, patcher=patcher,
+                    passthrough=True, spec=spec)
         object.__mocker_mock__ = mock
         return mock
 
@@ -505,10 +494,48 @@ class MockerBase(object):
                 event.remove_task(task)
         event.add_task(RunCounter(min, max))
 
-    def order(self, *path_holders):
-        """Ensure that events referred to by given objects happen in order.
+    def is_ordering(self):
+        """Return true if all events are being ordered.
 
-        As an example::
+        See the L{order()} method.
+        """
+        return self._ordering
+
+    def unorder(self):
+        """Disable the ordered mode.
+        
+        See the L{order()} method for more information.
+        """
+        self._ordering = False
+        self._last_orderer = None
+
+    def order(self, *path_holders):
+        """Create an expectation of order between two or more events.
+
+        @param path_holders: Objects returned as the result of recorded events.
+
+        By default, mocker won't force events to happen precisely in
+        the order they were recorded.  Calling this method will change
+        this behavior so that events will only match if reproduced in
+        the correct order.
+
+        There are two ways in which this method may be used.  Which one
+        is used in a given occasion depends only on convenience.
+
+        If no arguments are passed, the mocker will be put in a mode where
+        all the recorded events following the method call will only be met
+        if they happen in order.  When that's used, the mocker may be put
+        back in unordered mode by calling the L{unorder()} method, or by
+        using a 'with' block, like so::
+
+            with mocker.ordered():
+                <record events>
+
+        In this case, only expressions in <record events> will be ordered,
+        and the mocker will be back in unordered mode after the 'with' block.
+
+        The second way to use it is by specifying precisely which events
+        should be ordered.  As an example::
 
             mock = mocker.mock()
             expr1 = mock.hello()
@@ -517,11 +544,15 @@ class MockerBase(object):
             mocker.order(expr1, expr2, expr3)
 
         This method of ordering only works when the expression returns
-        another object.  For other methods of ordering check the
-        L{ordered()}, L{after()}, and L{before()} methods.
+        another object.
 
-        @param path_holders: Objects returned as the result of recorded events.
+        Also check the L{after()} and L{before()} methods, which are
+        alternative ways to perform this.
         """
+        if not path_holders:
+            self._ordering = True
+            return OrderedContext(self)
+
         last_orderer = None
         for path_holder in path_holders:
             if type(path_holder) is Path:
@@ -545,7 +576,20 @@ class MockerBase(object):
     def after(self, *path_holders):
         """Last recorded event must happen after events referred to.
 
-        @param path_holders: Objects returned as the result of recorded events.
+        @param path_holders: Objects returned as the result of recorded events
+                             which should happen before the last recorded event
+
+        As an example, the idiom::
+
+            expect(mock.x).after(mock.y, mock.z)
+
+        is an alternative way to say::
+
+            expr_x = mock.x
+            expr_y = mock.y
+            expr_z = mock.z
+            mocker.order(expr_y, expr_x)
+            mocker.order(expr_z, expr_x)
 
         See L{order()} for more information.
         """
@@ -556,7 +600,20 @@ class MockerBase(object):
     def before(self, *path_holders):
         """Last recorded event must happen before events referred to.
 
-        @param path_holders: Objects returned as the result of recorded events.
+        @param path_holders: Objects returned as the result of recorded events
+                             which should happen after the last recorded event
+
+        As an example, the idiom::
+
+            expect(mock.x).before(mock.y, mock.z)
+
+        is an alternative way to say::
+
+            expr_x = mock.x
+            expr_y = mock.y
+            expr_z = mock.z
+            mocker.order(expr_x, expr_y)
+            mocker.order(expr_x, expr_z)
 
         See L{order()} for more information.
         """
@@ -565,22 +622,36 @@ class MockerBase(object):
             self.order(last_path, path_holder)
 
     def nospec(self):
-        """Don't check method specification of real object on last event."""
+        """Don't check method specification of real object on last event.
+
+        By default, when using a mock created as the result of a call to
+        L{proxy()}, L{replace()}, and C{patch()}, or when passing the spec
+        attribute to the L{mock()} method, method calls on the given object
+        are checked for correctness against the specification of the real
+        object (or the explicitly provided spec).
+
+        This method will disable that check specifically for the last
+        recorded event.
+        """
         event = self._events[-1]
         for task in event.get_tasks():
             if isinstance(task, SpecChecker):
                 event.remove_task(task)
 
-    def passthrough(self):
-        """Make the last recorder event act on the real object once seen.
+    def passthrough(self, result_callback=None):
+        """Make the last recorded event run on the real object once seen.
+
+        @param result_callback: If given, this function will be called with
+            the result of the *real* method call as the only argument.
 
         This can only be used on proxies, as returned by the L{proxy()}
-        and L{replace()} methods, or on patched objects (L{patch()}).
+        and L{replace()} methods, or on mocks representing patched objects,
+        as returned by the L{patch()} method.
         """
         event = self._events[-1]
         if event.path.root_object is None:
             raise TypeError("Mock object isn't a proxy")
-        event.add_task(PathExecuter())
+        event.add_task(PathExecuter(result_callback))
 
     def __enter__(self):
         """Enter in a 'with' context.  This will run replay()."""
@@ -609,7 +680,7 @@ class OrderedContext(object):
         return None
 
     def __exit__(self, type, value, traceback):
-        self._mocker.unordered()
+        self._mocker.unorder()
 
 
 class Mocker(MockerBase):
@@ -668,6 +739,11 @@ class Mock(object):
         if name.startswith("__mocker_"):
             return super(Mock, self).__getattribute__(name)
         return self.__mocker_act__("getattr", (name,))
+
+    def __setattr__(self, name, value):
+        if name.startswith("__mocker_"):
+            return super(Mock, self).__setattr__(name, value)
+        return self.__mocker_act__("setattr", (name, value))
 
     def __call__(self, *args, **kwargs):
         return self.__mocker_act__("call", args, kwargs)
@@ -1159,15 +1235,9 @@ class RunCounter(Task):
 
     def verify(self):
         if not self.min <= self._runs <= self.max:
-            if self.max == sys.maxint:
-                raise AssertionError("Expected at least %d time(s), "
-                                     "seen %d time(s)."
-                                     % (self.min, self._runs))
-            if self.min == self.max:
-                raise AssertionError("Expected %d time(s), seen %d time(s)."
-                                     % (self.min, self._runs))
-            raise AssertionError("Expected %d to %d time(s), seen %d time(s)."
-                                 % (self.min, self.max, self._runs))
+            if self._runs < self.min:
+                raise AssertionError("Performed less times than expected.")
+            raise AssertionError("Performed more times than expected.")
 
 class ImplicitRunCounter(RunCounter):
     """RunCounter inserted by default on any event.
@@ -1238,8 +1308,17 @@ class FunctionRunner(Task):
 class PathExecuter(Task):
     """Task that executes a path in the real object, and returns the result."""
 
+    def __init__(self, result_callback=None):
+        self._result_callback = result_callback
+
+    def get_result_callback(self):
+        return self._result_callback
+
     def run(self, path):
-        return path.execute(path.root_object)
+        result = path.execute(path.root_object)
+        if self._result_callback is not None:
+            self._result_callback(result)
+        return result
 
 
 class Orderer(Task):
@@ -1316,12 +1395,17 @@ class SpecChecker(Task):
 
 @recorder
 def spec_checker_recorder(mocker, event):
-    cls = event.path.root_mock.__mocker_spec__
-    actions = event.path.actions
-    if (cls and len(actions) == 2 and
-        actions[0].kind == "getattr" and actions[1].kind == "call"):
-        method = getattr(cls, actions[0].args[0], None)
-        event.add_task(SpecChecker(method))
+    spec = event.path.root_mock.__mocker_spec__
+    if spec:
+        actions = event.path.actions
+        if len(actions) == 1:
+            if actions[0].kind == "call":
+                method = getattr(spec, "__call__", None)
+                event.add_task(SpecChecker(method))
+        elif len(actions) == 2:
+            if actions[0].kind == "getattr" and actions[1].kind == "call":
+                method = getattr(spec, actions[0].args[0], None)
+                event.add_task(SpecChecker(method))
 
 
 class ProxyReplacer(Task):

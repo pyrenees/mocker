@@ -25,6 +25,9 @@ class IntegrationTest(unittest.TestCase):
     def setUp(self):
         self.mocker = Mocker()
 
+    def tearDown(self):
+        self.mocker.restore()
+
     def test_count(self):
         obj = self.mocker.mock()
         obj.x
@@ -39,10 +42,10 @@ class IntegrationTest(unittest.TestCase):
         self.mocker.verify()
         self.assertRaises(AssertionError, getattr, obj, "x")
 
-    def test_ordered(self):
+    def test_order(self):
         obj = self.mocker.mock()
 
-        with_manager = self.mocker.ordered()
+        with_manager = self.mocker.order()
         with_manager.__enter__()
         obj.x
         obj.y
@@ -145,43 +148,46 @@ class IntegrationTest(unittest.TestCase):
         self.assertRaises(AssertionError, obj.sum, 0, 0) # Seen twice.
 
     def test_replace_install_and_restore(self):
-        try:
-            module = self.mocker.replace("calendar")
-            import calendar
-            self.assertTrue(calendar is not module)
-            self.mocker.replay()
-            import calendar
-            self.assertTrue(calendar is module)
-            self.mocker.restore()
-            import calendar
-            self.assertTrue(calendar is not module)
-        finally:
-            self.mocker.restore()
+        module = self.mocker.replace("calendar")
+        import calendar
+        self.assertTrue(calendar is not module)
+        self.mocker.replay()
+        import calendar
+        self.assertTrue(calendar is module)
+        self.mocker.restore()
+        import calendar
+        self.assertTrue(calendar is not module)
 
     def test_replace_os_path_join(self):
-        try:
-            path = self.mocker.replace("os.path")
-            expect(path.join(ARGS)).call(lambda *args: "-".join(args))
-            expect(path.join("e", ARGS)).passthrough()
-            self.mocker.replay()
-            import os
-            self.assertEquals(os.path.join("a", "b", "c"), "a-b-c")
-            self.assertNotEquals(os.path.join("e", "f", "g"), "e-f-g")
-        finally:
-            self.mocker.restore()
+        path = self.mocker.replace("os.path")
+        expect(path.join(ARGS)).call(lambda *args: "-".join(args))
+        expect(path.join("e", ARGS)).passthrough()
+        self.mocker.replay()
+        import os
+        self.assertEquals(os.path.join("a", "b", "c"), "a-b-c")
+        self.assertNotEquals(os.path.join("e", "f", "g"), "e-f-g")
 
     def test_replace_os_path_isfile(self):
-        try:
-            path = self.mocker.replace("os.path")
-            expect(path.isfile("unexistent")).result(True)
-            expect(path.isfile(ANY)).passthrough().count(2)
-            self.mocker.replay()
-            import os
-            self.assertFalse(os.path.isfile("another-unexistent"))
-            self.assertTrue(os.path.isfile("unexistent"))
-            self.assertFalse(os.path.isfile("unexistent"))
-        finally:
-            self.mocker.restore()
+        path = self.mocker.replace("os.path")
+        expect(path.isfile("unexistent")).result(True)
+        expect(path.isfile(ANY)).passthrough().count(2)
+        self.mocker.replay()
+        import os
+        self.assertFalse(os.path.isfile("another-unexistent"))
+        self.assertTrue(os.path.isfile("unexistent"))
+        self.assertFalse(os.path.isfile("unexistent"))
+
+    def test_patch_with_spec(self):
+        class C(object):
+            def method(self, a, b):
+                pass
+        mock = self.mocker.patch(C)
+        mock.method(1, 2)
+        mock.method(1)
+        self.mocker.replay()
+        mock.method(1, 2)
+        self.assertRaises(AssertionError, mock.method, 1)
+
 
 class ExpectTest(unittest.TestCase):
 
@@ -224,9 +230,10 @@ class MockerTest(unittest.TestCase):
         task.replay = lambda: calls.append("replay")
         task.restore = lambda: calls.append("restore")
         self.mocker.replay()
-        self.mocker.replay()
         self.assertFalse(self.mocker.is_recording())
         self.assertEquals(calls, ["replay"])
+        self.mocker.replay()
+        self.assertEquals(calls, ["replay", "restore", "replay"])
 
     def test_restore(self):
         calls = []
@@ -239,6 +246,22 @@ class MockerTest(unittest.TestCase):
         self.mocker.restore()
         self.assertTrue(self.mocker.is_recording())
         self.assertEquals(calls, ["replay", "restore"])
+
+    def test_reset(self):
+        calls = []
+        event = self.mocker.add_event(Event())
+        task = event.add_task(Task())
+        task.restore = lambda: calls.append("restore")
+        self.mocker.replay()
+        self.mocker.reset()
+        self.mocker.reset()
+        self.assertEquals(calls, ["restore"])
+        self.assertEquals(self.mocker.get_events(), [])
+
+    def test_reset_removes_ordering(self):
+        self.mocker.order()
+        self.mocker.reset()
+        self.assertFalse(self.mocker.is_ordering())
 
     def test_verify(self):
         class MyEvent(object):
@@ -768,21 +791,21 @@ class MockerTest(unittest.TestCase):
     def test_default_ordering(self):
         self.assertEquals(self.mocker.is_ordering(), False)
 
-    def test_ordered(self):
-        self.mocker.ordered()
+    def test_order_without_arguments(self):
+        self.mocker.order()
         self.assertEquals(self.mocker.is_ordering(), True)
 
-    def test_ordered_context_manager(self):
-        with_manager = self.mocker.ordered()
+    def test_order_with_context_manager(self):
+        with_manager = self.mocker.order()
         self.assertEquals(self.mocker.is_ordering(), True)
         with_manager.__enter__()
         self.assertEquals(self.mocker.is_ordering(), True)
         with_manager.__exit__(None, None, None)
         self.assertEquals(self.mocker.is_ordering(), False)
 
-    def test_unordered(self):
-        self.mocker.ordered()
-        self.mocker.unordered()
+    def test_unorder(self):
+        self.mocker.order()
+        self.mocker.unorder()
         self.assertEquals(self.mocker.is_ordering(), False)
 
     def test_ordered_events(self):
@@ -790,12 +813,12 @@ class MockerTest(unittest.TestCase):
 
         # Ensure that the state is correctly reset between
         # different ordered blocks.
-        self.mocker.ordered()
+        self.mocker.order()
 
         mock.a
 
-        self.mocker.unordered()
-        self.mocker.ordered()
+        self.mocker.unorder()
+        self.mocker.order()
 
         mock.x.y.z
 
@@ -840,6 +863,15 @@ class MockerTest(unittest.TestCase):
         event2 = self.mocker.add_event(Event(Path(mock)))
         self.assertRaises(TypeError, self.mocker.passthrough)
 
+    def test_passthrough(self):
+        obj = object()
+        mock = self.mocker.proxy(obj)
+        event = self.mocker.add_event(Event(Path(mock, obj)))
+        result_callback = object()
+        self.mocker.passthrough(result_callback)
+        (task,) = event.get_tasks()
+        self.assertEquals(task.get_result_callback(), result_callback)
+
     def test_on(self):
         obj = self.mocker.mock()
         self.mocker.on(obj.attr).result(123)
@@ -854,9 +886,15 @@ class MockerTest(unittest.TestCase):
         self.assertTrue(mock.__mocker_object__ is C)
         self.assertEquals(type(mock.__mocker_patcher__), Patcher)
         self.assertEquals(mock.__mocker_passthrough__, True)
+        self.assertEquals(mock.__mocker_spec__, C)
         (event,) = self.mocker.get_events()
         (task,) = event.get_tasks()
         self.assertTrue(task is mock.__mocker_patcher__)
+
+    def test_patch_without_spec(self):
+        class C(object): pass
+        mock = self.mocker.patch(C, spec=None)
+        self.assertEquals(mock.__mocker_spec__, None)
 
 
 class ActionTest(unittest.TestCase):
@@ -1389,6 +1427,14 @@ class MockTest(unittest.TestCase):
         self.assertEquals(path, self.mock.__mocker_path__ + 
                                 Action("getattr", ("attr",), {}))
 
+    def test_setattr(self):
+        self.mock.attr = 24
+        (path,) = self.paths
+        self.assertEquals(type(path), Path)
+        self.assertTrue(path.parent_path is self.mock.__mocker_path__)
+        self.assertEquals(path, self.mock.__mocker_path__ + 
+                                Action("setattr", ("attr", 24), {}))
+
     def test_call(self):
         self.mock(1, a=2)
         (path,) = self.paths
@@ -1909,6 +1955,22 @@ class PathExecuterTest(unittest.TestCase):
         task = PathExecuter()
         self.assertEquals(task.run(path), 3)
 
+    def test_run_with_result_callback(self):
+        class C(object):
+            def x(self, arg):
+                return 41 + arg
+        obj = C()
+
+        path = Path(None, obj, [Action("getattr", ("x",), {}),
+                                Action("call", (1,), {})])
+
+        calls = []
+        result_callback = lambda result: calls.append(result)
+        task = PathExecuter(result_callback)
+        self.assertEquals(task.get_result_callback(), result_callback)
+        self.assertEquals(task.run(path), 42)
+        self.assertEquals(calls, [42])
+
 
 class OrdererTest(unittest.TestCase):
 
@@ -1947,6 +2009,7 @@ class SpecCheckerTest(unittest.TestCase):
 
     def setUp(self):
         class C(object):
+            def __call__(self, a, b, c=3): pass
             def normal(self, a, b, c=3): pass
             def varargs(self, a, b, c=3, *args): pass
             def varkwargs(self, a, b, c=3, **kwargs): pass
@@ -2045,7 +2108,7 @@ class SpecCheckerTest(unittest.TestCase):
     def test_recorder_first_action_isnt_getattr(self):
         self.mocker.add_recorder(spec_checker_recorder)
         obj = self.mocker.mock(spec=self.cls)
-        obj("noargs").x
+        obj.__mocker_act__("anyother", ("attr",))()
         event1, event2 = self.mocker.get_events()
         self.assertEquals(event1.get_tasks(), [])
         self.assertEquals(event2.get_tasks(), [])
@@ -2059,6 +2122,23 @@ class SpecCheckerTest(unittest.TestCase):
         self.assertEquals(len(event2.get_tasks()), 1)
         self.assertEquals(len(event3.get_tasks()), 0)
 
+    def test_recorder_with_call_on_object(self):
+        self.mocker.add_recorder(spec_checker_recorder)
+        obj = self.mocker.mock(spec=self.cls)
+        obj()
+        (call,) = self.mocker.get_events()
+        (task,) = call.get_tasks()
+        self.assertEquals(type(task), SpecChecker)
+        self.assertEquals(task.get_method(), self.cls.__call__)
+
+    def test_recorder_more_than_one_action_with_direct_call(self):
+        self.mocker.add_recorder(spec_checker_recorder)
+        obj = self.mocker.mock(spec=self.cls)
+        obj().x
+        event1, event2 = self.mocker.get_events()
+        self.assertEquals(len(event1.get_tasks()), 1)
+        self.assertEquals(len(event2.get_tasks()), 0)
+
     def test_noargs(self):
         methods = ["noargs", "klassnoargs", "staticnoargs"]
         self.good(methods, "")
@@ -2066,8 +2146,8 @@ class SpecCheckerTest(unittest.TestCase):
         self.bad(methods, "a=1")
 
     def test_args_and_kwargs(self):
-        methods = ["normal", "varargs", "varkwargs", "varargskwargs",
-                   "static", "klass"]
+        methods = ["__call__", "normal", "varargs", "varkwargs",
+                   "varargskwargs", "static", "klass"]
         self.good(methods, "1, 2")
         self.good(methods, "1, 2, 3")
         self.good(methods, "1, b=2")
@@ -2076,13 +2156,13 @@ class SpecCheckerTest(unittest.TestCase):
         self.good(methods, "a=1, b=2, c=3")
 
     def test_too_much(self):
-        methods = ["normal", "static", "klass"]
+        methods = ["__call__", "normal", "static", "klass"]
         self.bad(methods, "1, 2, 3, 4")
         self.bad(methods, "1, 2, d=4")
 
     def test_missing(self):
-        methods = ["normal", "varargs", "varkwargs", "varargskwargs",
-                   "static", "klass"]
+        methods = ["__call__", "normal", "varargs", "varkwargs",
+                   "varargskwargs", "static", "klass"]
         self.bad(methods, "")
         self.bad(methods, "1")
         self.bad(methods, "c=3")
@@ -2090,8 +2170,8 @@ class SpecCheckerTest(unittest.TestCase):
         self.bad(methods, "b=2, c=3")
 
     def test_duplicated_argument(self):
-        methods = ["normal", "varargs", "varkwargs", "varargskwargs",
-                   "static", "klass"]
+        methods = ["__call__", "normal", "varargs", "varkwargs",
+                   "varargskwargs", "static", "klass"]
         self.bad(methods, "1, 2, b=2")
 
     def test_varargs(self):
@@ -2485,6 +2565,7 @@ class PatcherTest(unittest.TestCase):
         self.assertEquals(self.patcher.execute(action, obj), ((1,), {"a": 2}))
 
     def test_recorder_class_getattr(self):
+        self.C.method = lambda: None
         mock = self.mocker.patch(self.C)
         mock.method()
         self.mocker.result("mocked")
