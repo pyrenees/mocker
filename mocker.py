@@ -754,6 +754,12 @@ class Mock(object):
     def __contains__(self, value):
         return self.__mocker_act__("contains", (value,))
 
+    def __getitem__(self, key):
+        return self.__mocker_act__("getitem", (key,))
+
+    def __setitem__(self, key, value):
+        return self.__mocker_act__("setitem", (key, value))
+
     # When adding a new action kind here, also add support for it on
     # Action.execute() and Path.__str__().
 
@@ -833,6 +839,10 @@ class Action(object):
                 result = object(*self.args, **self.kwargs)
             elif kind == "contains":
                 result = self.args[0] in object
+            elif kind == "getitem":
+                result = object[self.args[0]]
+            elif kind == "setitem":
+                result = object[self.args[0]] = self.args[1]
             else:
                 raise RuntimeError("Don't know how to execute %r kind." % kind)
         self._execute_cache[id(object)] = result
@@ -911,6 +921,11 @@ class Path(object):
                 result = "%s(%s)" % (result, ", ".join(args))
             elif action.kind == "contains":
                 result = "%r in %s" % (action.args[0], result)
+            elif action.kind == "getitem":
+                result = "%s[%r]" % (result, action.args[0])
+            elif action.kind == "setitem":
+                result = "%s[%r] = %r" % (result, action.args[0],
+                                          action.args[1])
             else:
                 raise RuntimeError("Don't know how to format kind %r" %
                                    action.kind)

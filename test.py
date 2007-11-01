@@ -940,12 +940,25 @@ class ActionTest(unittest.TestCase):
         action = Action("call", (1,), {"b": 2})
         self.assertEquals(action.execute(obj), 3)
 
-    def test_contains(self):
+    def test_execute_contains(self):
         obj = set(["a"])
         action = Action("contains", ("a",), {})
         self.assertEquals(action.execute(obj), True)
         action = Action("contains", ("b",), {})
         self.assertEquals(action.execute(obj), False)
+
+    def test_execute_getitem(self):
+        obj = {"a": 1}
+        action = Action("getitem", ("a",), {})
+        self.assertEquals(action.execute(obj), 1)
+        action = Action("getitem", ("b",), {})
+        self.assertRaises(KeyError, action.execute, obj)
+
+    def test_execute_setitem(self):
+        obj = {}
+        action = Action("setitem", ("a", 1), {})
+        action.execute(obj)
+        self.assertEquals(obj, {"a": 1})
 
     def test_execute_caching(self):
         values = iter(range(10))
@@ -1188,6 +1201,14 @@ class PathTest(unittest.TestCase):
     def test_str_contains(self):
         path = Path(self.mock, None, [Action("contains", ("value",), {})])
         self.assertEquals(str(path), "'value' in obj")
+
+    def test_str_getitem(self):
+        path = Path(self.mock, None, [Action("getitem", ("key",), {})])
+        self.assertEquals(str(path), "obj['key']")
+
+    def test_str_setitem(self):
+        path = Path(self.mock, None, [Action("setitem", ("key", "value"), {})])
+        self.assertEquals(str(path), "obj['key'] = 'value'")
 
     def test_str_getattr_call(self):
         path = Path(self.mock, None, [Action("getattr", ("x",), {}),
@@ -1495,6 +1516,22 @@ class MockTest(unittest.TestCase):
         self.assertTrue(path.parent_path is self.mock.__mocker_path__)
         self.assertEquals(path, self.mock.__mocker_path__ + 
                                 Action("contains", ("value",), {}))
+
+    def test_getitem(self):
+        self.assertEquals(self.mock["key"], 42)
+        (path,) = self.paths
+        self.assertEquals(type(path), Path)
+        self.assertTrue(path.parent_path is self.mock.__mocker_path__)
+        self.assertEquals(path, self.mock.__mocker_path__ + 
+                                Action("getitem", ("key",), {}))
+
+    def test_setitem(self):
+        self.mock["key"] = "value"
+        (path,) = self.paths
+        self.assertEquals(type(path), Path)
+        self.assertTrue(path.parent_path is self.mock.__mocker_path__)
+        self.assertEquals(path, self.mock.__mocker_path__ + 
+                                Action("setitem", ("key", "value"), {}))
 
     def test_passthrough_on_unexpected(self):
         class StubMocker(object):
