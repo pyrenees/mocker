@@ -914,14 +914,38 @@ class ActionTest(unittest.TestCase):
         class C(object):
             pass
         obj = C()
-        obj.x = C()
-        action = Action("getattr", ("x",), {})
-        self.assertEquals(action.execute(obj), obj.x)
+        obj.attr = C()
+        action = Action("getattr", ("attr",), {})
+        self.assertEquals(action.execute(obj), obj.attr)
+
+    def test_execute_setattr(self):
+        class C(object):
+            pass
+        obj = C()
+        action = Action("setattr", ("attr", "value"), {})
+        action.execute(obj)
+        self.assertEquals(getattr(obj, "attr", None), "value")
+
+    def test_execute_delattr(self):
+        class C(object):
+            pass
+        obj = C()
+        obj.attr = "value"
+        action = Action("delattr", ("attr",), {})
+        action.execute(obj)
+        self.assertEquals(getattr(obj, "attr", None), None)
 
     def test_execute_call(self):
         obj = lambda a, b: a+b
         action = Action("call", (1,), {"b": 2})
         self.assertEquals(action.execute(obj), 3)
+
+    def test_contains(self):
+        obj = set(["a"])
+        action = Action("contains", ("a",), {})
+        self.assertEquals(action.execute(obj), True)
+        action = Action("contains", ("b",), {})
+        self.assertEquals(action.execute(obj), False)
 
     def test_execute_caching(self):
         values = iter(range(10))
@@ -1144,6 +1168,15 @@ class PathTest(unittest.TestCase):
         path += Action("getattr", ("x",), {})
         self.assertEquals(str(path), "obj.attr.x")
 
+    def test_str_setattr(self):
+        path = Path(self.mock, None,
+                    [Action("setattr", ("attr", "value"), {})])
+        self.assertEquals(str(path), "obj.attr = 'value'")
+
+    def test_str_delattr(self):
+        path = Path(self.mock, None, [Action("delattr", ("attr",), {})])
+        self.assertEquals(str(path), "del obj.attr")
+
     def test_str_call(self):
         path = Path(self.mock, None, [Action("call", (), {})])
         self.assertEquals(str(path), "obj()")
@@ -1151,6 +1184,10 @@ class PathTest(unittest.TestCase):
         path = Path(self.mock, None,
                     [Action("call", (1, "2"), {"a": 3, "b": "4"})])
         self.assertEquals(str(path), "obj(1, '2', a=3, b='4')")
+
+    def test_str_contains(self):
+        path = Path(self.mock, None, [Action("contains", ("value",), {})])
+        self.assertEquals(str(path), "'value' in obj")
 
     def test_str_getattr_call(self):
         path = Path(self.mock, None, [Action("getattr", ("x",), {}),
@@ -1435,6 +1472,14 @@ class MockTest(unittest.TestCase):
         self.assertEquals(path, self.mock.__mocker_path__ + 
                                 Action("setattr", ("attr", 24), {}))
 
+    def test_delattr(self):
+        del self.mock.attr
+        (path,) = self.paths
+        self.assertEquals(type(path), Path)
+        self.assertTrue(path.parent_path is self.mock.__mocker_path__)
+        self.assertEquals(path, self.mock.__mocker_path__ + 
+                                Action("delattr", ("attr",), {}))
+
     def test_call(self):
         self.mock(1, a=2)
         (path,) = self.paths
@@ -1442,6 +1487,14 @@ class MockTest(unittest.TestCase):
         self.assertTrue(path.parent_path is self.mock.__mocker_path__)
         self.assertEquals(path, self.mock.__mocker_path__ + 
                                 Action("call", (1,), {"a": 2}))
+
+    def test_contains(self):
+        self.assertEquals("value" in self.mock, True) # True due to 42.
+        (path,) = self.paths
+        self.assertEquals(type(path), Path)
+        self.assertTrue(path.parent_path is self.mock.__mocker_path__)
+        self.assertEquals(path, self.mock.__mocker_path__ + 
+                                Action("contains", ("value",), {}))
 
     def test_passthrough_on_unexpected(self):
         class StubMocker(object):
@@ -1496,6 +1549,38 @@ class MockTest(unittest.TestCase):
             self.assertEquals(str(e), message)
         else:
             self.fail("AssertionError not raised")
+
+    def test_action_execute_and_path_str(self):
+        """Check for kind support on Action.execute() and Path.__str__()."""
+        mocker = Mocker()
+        mock = mocker.mock()
+        check = []
+        for name, attr in Mock.__dict__.iteritems():
+            if not name.startswith("__mocker_") and hasattr(attr, "__call__"):
+                args = ["arg"] * (attr.func_code.co_argcount - 1)
+                try:
+                    attr(mock, *args)
+                except:
+                    pass
+                else:
+                    path = mocker.get_events()[-1].path
+                    check.append((path, path.actions[-1]))
+
+        for path, action in check:
+            kind = action.kind
+
+            try:
+                str(path)
+            except RuntimeError:
+                self.fail("Kind %r not supported by Path.__str__()" % kind)
+
+            try:
+                action.execute(object())
+            except RuntimeError:
+                self.fail("Kind %r not supported by Action.execute()" % kind)
+            except:
+                pass
+
 
 
 

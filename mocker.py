@@ -745,8 +745,17 @@ class Mock(object):
             return super(Mock, self).__setattr__(name, value)
         return self.__mocker_act__("setattr", (name, value))
 
+    def __delattr__(self, name):
+        return self.__mocker_act__("delattr", (name,))
+
     def __call__(self, *args, **kwargs):
         return self.__mocker_act__("call", args, kwargs)
+
+    def __contains__(self, value):
+        return self.__mocker_act__("contains", (value,))
+
+    # When adding a new action kind here, also add support for it on
+    # Action.execute() and Path.__str__().
 
 
 def find_object_name(obj, depth=0):
@@ -816,11 +825,16 @@ class Action(object):
             kind = self.kind
             if kind == "getattr":
                 result = getattr(object, self.args[0])
+            elif kind == "setattr":
+                result = setattr(object, self.args[0], self.args[1])
+            elif kind == "delattr":
+                result = delattr(object, self.args[0])
             elif kind == "call":
                 result = object(*self.args, **self.kwargs)
+            elif kind == "contains":
+                result = self.args[0] in object
             else:
-                raise RuntimeError("Don't know how to apply %r kind"
-                                   % self.kind)
+                raise RuntimeError("Don't know how to execute %r kind." % kind)
         self._execute_cache[id(object)] = result
         return result
 
@@ -882,19 +896,25 @@ class Path(object):
 
     def __str__(self):
         """Transform the path into a nice string such as obj.x.y('z')."""
-        attrs = [self.root_mock.__mocker_name__ or "<mock>"]
+        result = self.root_mock.__mocker_name__ or "<mock>"
         for action in self.actions:
             if action.kind == "getattr":
-                attrs.append(action.args[0])
+                result = "%s.%s" % (result, action.args[0])
+            elif action.kind == "setattr":
+                result = "%s.%s = %r" % (result, action.args[0], action.args[1])
+            elif action.kind == "delattr":
+                result = "del %s.%s" % (result, action.args[0])
             elif action.kind == "call":
                 args = [repr(x) for x in action.args]
                 for pair in sorted(action.kwargs.iteritems()):
                     args.append("%s=%r" % pair)
-                attrs[-1] += "(%s)" % ", ".join(args)
+                result = "%s(%s)" % (result, ", ".join(args))
+            elif action.kind == "contains":
+                result = "%r in %s" % (action.args[0], result)
             else:
                 raise RuntimeError("Don't know how to format kind %r" %
                                    action.kind)
-        return ".".join(attrs)
+        return result
 
 
 class SpecialArgument(object):
