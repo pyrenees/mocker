@@ -725,7 +725,7 @@ class Mock(object):
                 root_mock.__mocker_passthrough__):
                 return path.execute(path.root_object)
             # Reinstantiate to show raise statement on traceback, and
-            # also to make it shorter.
+            # also to make the traceback shown shorter.
             raise MatchError(str(exception))
         except AssertionError, e:
             lines = str(e).splitlines()
@@ -759,6 +759,34 @@ class Mock(object):
 
     def __setitem__(self, key, value):
         return self.__mocker_act__("setitem", (key, value))
+
+    def __len__(self):
+        # MatchError is turned on an AttributeError so that list() and
+        # friends act properly when trying to get length hints on
+        # something that doesn't offer them.
+        try:
+            result = self.__mocker_act__("len")
+        except MatchError, e:
+            raise AttributeError(str(e))
+        if type(result) is Mock:
+            return 0
+        return result
+
+    def __nonzero__(self):
+        try:
+            return self.__mocker_act__("nonzero")
+        except MatchError, e:
+            return True
+
+    def __iter__(self):
+        # XXX On py3k, when next() becomes __next__(), we'll be able
+        #     to return the mock itself because it will be considered
+        #     an iterator (we'll be mocking __next__ as well, which we
+        #     can't now).
+        result = self.__mocker_act__("iter")
+        if type(result) is Mock:
+            return iter([])
+        return result
 
     # When adding a new action kind here, also add support for it on
     # Action.execute() and Path.__str__().
@@ -843,6 +871,12 @@ class Action(object):
                 result = object[self.args[0]]
             elif kind == "setitem":
                 result = object[self.args[0]] = self.args[1]
+            elif kind == "len":
+                result = len(object)
+            elif kind == "nonzero":
+                result = bool(object)
+            elif kind == "iter":
+                result = iter(object)
             else:
                 raise RuntimeError("Don't know how to execute %r kind." % kind)
         self._execute_cache[id(object)] = result
@@ -926,6 +960,12 @@ class Path(object):
             elif action.kind == "setitem":
                 result = "%s[%r] = %r" % (result, action.args[0],
                                           action.args[1])
+            elif action.kind == "len":
+                result = "len(%s)" % result
+            elif action.kind == "nonzero":
+                result = "bool(%s)" % result
+            elif action.kind == "iter":
+                result = "iter(%s)" % result
             else:
                 raise RuntimeError("Don't know how to format kind %r" %
                                    action.kind)

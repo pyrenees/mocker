@@ -188,6 +188,18 @@ class IntegrationTest(unittest.TestCase):
         mock.method(1, 2)
         self.assertRaises(AssertionError, mock.method, 1)
 
+    def test_mock_iter(self):
+        """
+        list() uses len() as a hint. When we mock iter(), it shouldn't
+        explode due to the lack of len().
+        """
+        mock = self.mocker.mock()
+        iter(mock)
+        self.mocker.result(iter([1, 2, 3]))
+        self.mocker.replay()
+        self.assertEquals(list(mock), [1, 2, 3])
+        self.mocker.verify()
+
 
 class ExpectTest(unittest.TestCase):
 
@@ -960,6 +972,26 @@ class ActionTest(unittest.TestCase):
         action.execute(obj)
         self.assertEquals(obj, {"a": 1})
 
+    def test_execute_len(self):
+        obj = [1, 2, 3]
+        action = Action("len", (), {})
+        self.assertEquals(action.execute(obj), 3)
+
+    def test_execute_nonzero(self):
+        obj = []
+        action = Action("nonzero", (), {})
+        self.assertEquals(action.execute(obj), False)
+        obj = [1]
+        action = Action("nonzero", (), {})
+        self.assertEquals(action.execute(obj), True)
+
+    def test_execute_iter(self):
+        obj = [1, 2, 3]
+        action = Action("iter", (), {})
+        result = action.execute(obj)
+        self.assertEquals(type(result), type(iter(obj)))
+        self.assertEquals(list(result), obj)
+
     def test_execute_caching(self):
         values = iter(range(10))
         obj = lambda: values.next()
@@ -1181,6 +1213,12 @@ class PathTest(unittest.TestCase):
         path += Action("getattr", ("x",), {})
         self.assertEquals(str(path), "obj.attr.x")
 
+    def test_str_getattr_call(self):
+        path = Path(self.mock, None, [Action("getattr", ("x",), {}),
+                                      Action("getattr", ("y",), {}),
+                                      Action("call", ("z",), {})])
+        self.assertEquals(str(path), "obj.x.y('z')")
+
     def test_str_setattr(self):
         path = Path(self.mock, None,
                     [Action("setattr", ("attr", "value"), {})])
@@ -1210,13 +1248,19 @@ class PathTest(unittest.TestCase):
         path = Path(self.mock, None, [Action("setitem", ("key", "value"), {})])
         self.assertEquals(str(path), "obj['key'] = 'value'")
 
-    def test_str_getattr_call(self):
-        path = Path(self.mock, None, [Action("getattr", ("x",), {}),
-                                      Action("getattr", ("y",), {}),
-                                      Action("call", ("z",), {})])
-        self.assertEquals(str(path), "obj.x.y('z')")
+    def test_str_len(self):
+        path = Path(self.mock, None, [Action("len", (), {})])
+        self.assertEquals(str(path), "len(obj)")
 
-    def test_str_raise_on_unknown(self):
+    def test_str_nonzero(self):
+        path = Path(self.mock, None, [Action("nonzero", (), {})])
+        self.assertEquals(str(path), "bool(obj)")
+
+    def test_str_iter(self):
+        path = Path(self.mock, None, [Action("iter", (), {})])
+        self.assertEquals(str(path), "iter(obj)")
+
+    def test_str_raises_on_unknown(self):
         path = Path(self.mock, None, [Action("unknown", (), {})])
         self.assertRaises(RuntimeError, str, path)
 
@@ -1533,6 +1577,67 @@ class MockTest(unittest.TestCase):
         self.assertEquals(path, self.mock.__mocker_path__ + 
                                 Action("setitem", ("key", "value"), {}))
 
+    def test_len(self):
+        self.assertEquals(len(self.mock), 42)
+        (path,) = self.paths
+        self.assertEquals(type(path), Path)
+        self.assertTrue(path.parent_path is self.mock.__mocker_path__)
+        self.assertEquals(path, self.mock.__mocker_path__ + 
+                                Action("len", (), {}))
+
+    def test_len_with_mock_result(self):
+        self.mocker.act = lambda path: Mock(self.mocker)
+        self.assertEquals(len(self.mock), 0)
+
+    def test_len_transforms_match_error_to_attribute_error(self):
+        """
+        list() uses len() as a hint. When we mock iter(), it shouldn't
+        explode due to the lack of len().
+        """
+        def raise_error(path):
+            raise MatchError("Kaboom!")
+
+        self.mocker.act = raise_error
+        try:
+            len(self.mock)
+        except AttributeError, e:
+            self.assertEquals(str(e), "Kaboom!")
+        except MatchError:
+            self.fail("Expected AttributeError, not MatchError.")
+        else:
+            self.fail("AttributeError not raised.")
+
+    def test_nonzero(self):
+        self.assertEquals(bool(self.mock), True) # True due to 42.
+        (path,) = self.paths
+        self.assertEquals(type(path), Path)
+        self.assertTrue(path.parent_path is self.mock.__mocker_path__)
+        self.assertEquals(path, self.mock.__mocker_path__ + 
+                                Action("nonzero", (), {}))
+
+    def test_nonzero_returns_true_on_match_error(self):
+        """
+        When an object doesn't define a boolean behavior explicitly, it
+        should be handled as a true value by default, as Python usually
+        does.
+        """
+        def raise_error(path):
+            raise MatchError("Kaboom!")
+        self.mocker.act = raise_error
+        self.assertEquals(bool(self.mock), True)
+
+    def test_iter(self):
+        result_mock = Mock(self.mocker)
+        self.mocker.act = lambda path: self.paths.append(path) or result_mock
+        result = iter(self.mock)
+        self.assertEquals(type(result), type(iter([])))
+        self.assertEquals(list(result), [])
+        (path,) = self.paths
+        self.assertEquals(type(path), Path)
+        self.assertTrue(path.parent_path is self.mock.__mocker_path__)
+        self.assertEquals(path, self.mock.__mocker_path__ + 
+                                Action("iter", (), {}))
+
     def test_passthrough_on_unexpected(self):
         class StubMocker(object):
             def act(self, path):
@@ -1590,10 +1695,10 @@ class MockTest(unittest.TestCase):
     def test_action_execute_and_path_str(self):
         """Check for kind support on Action.execute() and Path.__str__()."""
         mocker = Mocker()
-        mock = mocker.mock()
         check = []
         for name, attr in Mock.__dict__.iteritems():
             if not name.startswith("__mocker_") and hasattr(attr, "__call__"):
+                mock = mocker.mock()
                 args = ["arg"] * (attr.func_code.co_argcount - 1)
                 try:
                     attr(mock, *args)
