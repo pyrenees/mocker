@@ -127,6 +127,16 @@ class IntegrationTest(unittest.TestCase):
         self.assertEquals(obj.x(24), 42)
         self.assertEquals(calls, [24])
 
+    def test_generate(self):
+        obj = self.mocker.mock()
+        obj.x(24)
+        self.mocker.generate([1, 2, 3])
+        self.mocker.replay()
+        result = obj.x(24)
+        def g(): yield None
+        self.assertEquals(type(result), type(g()))
+        self.assertEquals(list(result), [1, 2, 3])
+
     def test_proxy(self):
         class C(object):
             def sum(self, *args):

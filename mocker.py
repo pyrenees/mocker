@@ -460,6 +460,12 @@ class MockerBase(object):
         """
         self.call(lambda *args, **kwargs: value)
 
+    def generate(self, sequence):
+        def generate(*args, **kwargs):
+            for value in sequence:
+                yield value
+        self.call(generate)
+
     def throw(self, exception):
         """Make the last recorded event raise the given exception on replay.
 
