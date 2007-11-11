@@ -562,6 +562,10 @@ class MockerBase(object):
         self.call(lambda *args, **kwargs: value)
 
     def generate(self, sequence):
+        """Last recorded event will return a generator with the given sequence.
+
+        @param sequence: Sequence of values to be generated.
+        """
         def generate(*args, **kwargs):
             for value in sequence:
                 yield value
@@ -880,6 +884,9 @@ class Mock(object):
     def __setitem__(self, key, value):
         return self.__mocker_act__("setitem", (key, value))
 
+    def __delitem__(self, key):
+        return self.__mocker_act__("delitem", (key,))
+
     def __len__(self):
         # MatchError is turned on an AttributeError so that list() and
         # friends act properly when trying to get length hints on
@@ -991,6 +998,9 @@ class Action(object):
                 result = object[self.args[0]]
             elif kind == "setitem":
                 result = object[self.args[0]] = self.args[1]
+            elif kind == "delitem":
+                del object[self.args[0]]
+                result = None
             elif kind == "len":
                 result = len(object)
             elif kind == "nonzero":
@@ -1080,6 +1090,8 @@ class Path(object):
             elif action.kind == "setitem":
                 result = "%s[%r] = %r" % (result, action.args[0],
                                           action.args[1])
+            elif action.kind == "delitem":
+                result = "del %s[%r]" % (result, action.args[0])
             elif action.kind == "len":
                 result = "len(%s)" % result
             elif action.kind == "nonzero":

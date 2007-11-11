@@ -1264,6 +1264,12 @@ class ActionTest(unittest.TestCase):
         action.execute(obj)
         self.assertEquals(obj, {"a": 1})
 
+    def test_execute_delitem(self):
+        obj = {"a": 1, "b": 2}
+        action = Action("delitem", ("a",), {})
+        action.execute(obj)
+        self.assertEquals(obj, {"b": 2})
+
     def test_execute_len(self):
         obj = [1, 2, 3]
         action = Action("len", (), {})
@@ -1539,6 +1545,10 @@ class PathTest(unittest.TestCase):
     def test_str_setitem(self):
         path = Path(self.mock, None, [Action("setitem", ("key", "value"), {})])
         self.assertEquals(str(path), "obj['key'] = 'value'")
+
+    def test_str_delitem(self):
+        path = Path(self.mock, None, [Action("delitem", ("key",), {})])
+        self.assertEquals(str(path), "del obj['key']")
 
     def test_str_len(self):
         path = Path(self.mock, None, [Action("len", (), {})])
@@ -1868,6 +1878,14 @@ class MockTest(unittest.TestCase):
         self.assertTrue(path.parent_path is self.mock.__mocker_path__)
         self.assertEquals(path, self.mock.__mocker_path__ + 
                                 Action("setitem", ("key", "value"), {}))
+
+    def test_delitem(self):
+        del self.mock["key"]
+        (path,) = self.paths
+        self.assertEquals(type(path), Path)
+        self.assertTrue(path.parent_path is self.mock.__mocker_path__)
+        self.assertEquals(path, self.mock.__mocker_path__ + 
+                                Action("delitem", ("key",), {}))
 
     def test_len(self):
         self.assertEquals(len(self.mock), 42)
