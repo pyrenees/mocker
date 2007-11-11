@@ -1,5 +1,6 @@
 #!/usr/bin/python
 import unittest
+import inspect
 import sys
 import os
 import gc
@@ -11,13 +12,13 @@ from mocker import (
     PathMatcher, path_matcher_recorder, RunCounter, ImplicitRunCounter,
     run_counter_recorder, run_counter_removal_recorder, MockReturner,
     mock_returner_recorder, FunctionRunner, Orderer, SpecChecker,
-    spec_checker_recorder, match_params, ANY, VARIOUS, SAME, CONTAINS,
-    ARGS, KWARGS, MatchError, PathExecuter, ProxyReplacer, Patcher,
-    Undefined, PatchedMethod)
+    spec_checker_recorder, match_params, ANY, IS, CONTAINS, IN, ARGS, KWARGS,
+    MatchError, PathExecuter, ProxyReplacer, Patcher, Undefined, PatchedMethod,
+    MockerTestCase, ReplayRestoreEvent, OnRestoreCaller)
 
 
 class CleanMocker(MockerBase):
-    pass
+    """Just a better name for MockerBase in a testing context."""
 
 
 class IntegrationTest(unittest.TestCase):
@@ -229,6 +230,275 @@ class ExpectTest(unittest.TestCase):
         self.assertEquals(obj.attr, 42)
 
 
+class MockerTestCaseTest(unittest.TestCase):
+
+    def setUp(self):
+        self.test = MockerTestCase("__init__")
+
+    def test_has_mocker(self):
+        self.assertEquals(type(self.test.mocker), Mocker)
+
+    def test_has_expect(self):
+        self.assertTrue(self.test.expect is expect)
+
+    def test_constructor_is_the_same(self):
+        self.assertEquals(inspect.getargspec(unittest.TestCase.__init__),
+                          inspect.getargspec(MockerTestCase.__init__))
+
+    def test_docstring_is_the_same(self):
+        class MyTest(MockerTestCase):
+            def test_method(self):
+                """Hello there!"""
+        self.assertEquals(MyTest("test_method").test_method.__doc__,
+                          "Hello there!")
+
+    def test_short_description_is_the_same(self):
+        class MyTest(MockerTestCase):
+            def test_method(self):
+                """Hello there!"""
+        class StandardTest(unittest.TestCase):
+            def test_method(self):
+                """Hello there!"""
+
+        self.assertEquals(MyTest("test_method").shortDescription(),
+                          StandardTest("test_method").shortDescription())
+
+    def test_missing_method_raises_the_same_error(self):
+        class MyTest(unittest.TestCase):
+            pass
+
+        try:
+            MyTest("unexistent_method").run()
+        except Exception, e:
+            expected_error = e
+
+        class MyTest(MockerTestCase):
+            pass
+        
+        try:
+            MyTest("unexistent_method").run()
+        except Exception, e:
+            self.assertEquals(str(e), str(expected_error))
+            self.assertEquals(type(e), type(expected_error))
+
+    def test_mocker_is_verified_and_restored_after_test_method_is_run(self):
+        calls = []
+        class MyEvent(Event):
+            def verify(self):
+                calls.append("verify")
+            def restore(self):
+                calls.append("restore")
+        class MyTest(MockerTestCase):
+            def test_method(self):
+                self.mocker.add_event(MyEvent())
+                self.mocker.replay()
+            def test_method_raising(self):
+                self.mocker.add_event(MyEvent())
+                self.mocker.replay()
+                raise AssertionError("BOOM!")
+
+        result = unittest.TestResult()
+        MyTest("test_method").run(result)
+
+        self.assertEquals(calls, ["restore", "verify"])
+        self.assertTrue(result.wasSuccessful())
+
+        del calls[:]
+
+        result = unittest.TestResult()
+        MyTest("test_method_raising").run(result)
+
+        self.assertEquals(calls, ["restore"])
+        self.assertEquals(len(result.errors), 0)
+        self.assertEquals(len(result.failures), 1)
+        self.assertTrue("BOOM!" in result.failures[0][1])
+
+    def test_expectation_failure_acts_appropriately(self):
+        class MyTest(MockerTestCase):
+            def test_method(self):
+                mock = self.mocker.mock()
+                mock.x
+                self.mocker.replay()
+        
+        result = unittest.TestResult()
+        MyTest("test_method").run(result)
+
+        self.assertEquals(len(result.errors), 0)
+        self.assertEquals(len(result.failures), 1)
+        self.assertTrue("mock.x" in result.failures[0][1])
+
+    def test_fail_unless_is_raises_on_mismatch(self):
+        try:
+            self.test.failUnlessIs([], [])
+        except AssertionError, e:
+            self.assertEquals(str(e), "[] is not []")
+        else:
+            self.fail("AssertionError not raised")
+
+    def test_fail_unless_is_uses_msg(self):
+        try:
+            self.test.failUnlessIs([], [], "oops!")
+        except AssertionError, e:
+            self.assertEquals(str(e), "oops!")
+        else:
+            self.fail("AssertionError not raised")
+
+    def test_fail_unless_is_succeeds(self):
+        obj = []
+        try:
+            self.test.failUnlessIs(obj, obj)
+        except AssertionError:
+            self.fail("AssertionError shouldn't be raised")
+
+    def test_fail_if_is_raises_on_mismatch(self):
+        obj = []
+        try:
+            self.test.failIfIs(obj, obj)
+        except AssertionError, e:
+            self.assertEquals(str(e), "[] is []")
+        else:
+            self.fail("AssertionError not raised")
+
+    def test_fail_if_is_uses_msg(self):
+        obj = []
+        try:
+            self.test.failIfIs(obj, obj, "oops!")
+        except AssertionError, e:
+            self.assertEquals(str(e), "oops!")
+        else:
+            self.fail("AssertionError not raised")
+
+    def test_fail_if_is_succeeds(self):
+        try:
+            self.test.failIfIs([], [])
+        except AssertionError:
+            self.fail("AssertionError shouldn't be raised")
+
+    def test_fail_unless_in_raises_on_mismatch(self):
+        try:
+            self.test.failUnlessIn(1, [])
+        except AssertionError, e:
+            self.assertEquals(str(e), "1 not in []")
+        else:
+            self.fail("AssertionError not raised")
+
+    def test_fail_unless_in_uses_msg(self):
+        try:
+            self.test.failUnlessIn(1, [], "oops!")
+        except AssertionError, e:
+            self.assertEquals(str(e), "oops!")
+        else:
+            self.fail("AssertionError not raised")
+
+    def test_fail_unless_in_succeeds(self):
+        try:
+            self.test.failUnlessIn(1, [1])
+        except AssertionError:
+            self.fail("AssertionError shouldn't be raised")
+
+    def test_fail_if_in_raises_on_mismatch(self):
+        try:
+            self.test.failIfIn(1, [1])
+        except AssertionError, e:
+            self.assertEquals(str(e), "1 in [1]")
+        else:
+            self.fail("AssertionError not raised")
+
+    def test_fail_if_in_uses_msg(self):
+        try:
+            self.test.failIfIn(1, [1], "oops!")
+        except AssertionError, e:
+            self.assertEquals(str(e), "oops!")
+        else:
+            self.fail("AssertionError not raised")
+
+    def test_fail_if_in_succeeds(self):
+        try:
+            self.test.failIfIn(1, [])
+        except AssertionError:
+            self.fail("AssertionError shouldn't be raised")
+
+    def test_fail_unless_approximates_raises_on_mismatch(self):
+        try:
+            self.test.failUnlessApproximates(1, 2, 0.999)
+        except AssertionError, e:
+            self.assertEquals(str(e), "abs(1 - 2) > 0.999")
+        else:
+            self.fail("AssertionError not raised")
+
+    def test_fail_unless_approximates_uses_msg(self):
+        try:
+            self.test.failUnlessApproximates(1, 2, 0.999, "oops!")
+        except AssertionError, e:
+            self.assertEquals(str(e), "oops!")
+        else:
+            self.fail("AssertionError not raised")
+
+    def test_fail_unless_approximates_succeeds(self):
+        try:
+            self.test.failUnlessApproximates(1, 2, 1)
+        except AssertionError:
+            self.fail("AssertionError shouldn't be raised")
+
+    def test_fail_if_approximates_raises_on_mismatch(self):
+        try:
+            self.test.failIfApproximates(1, 2, 1)
+        except AssertionError, e:
+            self.assertEquals(str(e), "abs(1 - 2) <= 1")
+        else:
+            self.fail("AssertionError not raised")
+
+    def test_fail_if_approximates_uses_msg(self):
+        try:
+            self.test.failIfApproximates(1, 2, 1, "oops!")
+        except AssertionError, e:
+            self.assertEquals(str(e), "oops!")
+        else:
+            self.fail("AssertionError not raised")
+
+    def test_fail_if_approximates_succeeds(self):
+        try:
+            self.test.failIfApproximates(1, 2, 0.999)
+        except AssertionError:
+            self.fail("AssertionError shouldn't be raised")
+
+    def test_aliases(self):
+        get_method = MockerTestCase.__dict__.get
+
+        self.assertEquals(get_method("assertIs"),
+                          get_method("failUnlessIs"))
+
+        self.assertEquals(get_method("assertIsNot"),
+                          get_method("failIfIs"))
+
+        self.assertEquals(get_method("assertIn"),
+                          get_method("failUnlessIn"))
+
+        self.assertEquals(get_method("assertNotIn"),
+                          get_method("failIfIn"))
+
+        self.assertEquals(get_method("assertApproximates"),
+                          get_method("failUnlessApproximates"))
+
+        self.assertEquals(get_method("assertNotApproximates"),
+                          get_method("failIfApproximates"))
+
+    def test_twisted_trial_aliases(self):
+        get_method = MockerTestCase.__dict__.get
+
+        self.assertEquals(get_method("assertIdentical"),
+                          get_method("assertIs"))
+
+        self.assertEquals(get_method("assertNotIdentical"),
+                          get_method("assertIsNot"))
+
+        self.assertEquals(get_method("failUnlessIdentical"),
+                          get_method("failUnlessIs"))
+
+        self.assertEquals(get_method("failIfIdentical"),
+                          get_method("failIfIs"))
+
+
 class MockerTest(unittest.TestCase):
 
     def setUp(self):
@@ -268,6 +538,16 @@ class MockerTest(unittest.TestCase):
         self.mocker.restore()
         self.assertTrue(self.mocker.is_recording())
         self.assertEquals(calls, ["replay", "restore"])
+
+    def test_on_restore(self):
+        calls = []
+        self.mocker.on_restore(lambda: calls.append("callback"))
+        self.mocker.restore()
+        self.assertEquals(calls, [])
+        self.mocker.replay()
+        self.mocker.restore()
+        self.mocker.restore()
+        self.assertEquals(calls, ["callback"])
 
     def test_reset(self):
         calls = []
@@ -494,6 +774,7 @@ class MockerTest(unittest.TestCase):
         self.assertEquals(proxy.__mocker_spec__, object)
         self.assertEquals(proxy.__mocker_name__, "obj")
         (event,) = self.mocker.get_events()
+        self.assertEquals(type(event), ReplayRestoreEvent)
         (task,) = event.get_tasks()
         self.assertEquals(type(task), ProxyReplacer)
         self.assertTrue(task.mock is proxy)
@@ -910,6 +1191,7 @@ class MockerTest(unittest.TestCase):
         self.assertEquals(mock.__mocker_passthrough__, True)
         self.assertEquals(mock.__mocker_spec__, C)
         (event,) = self.mocker.get_events()
+        self.assertEquals(type(event), ReplayRestoreEvent)
         (task,) = event.get_tasks()
         self.assertTrue(task is mock.__mocker_patcher__)
 
@@ -1307,34 +1589,22 @@ class MatchParamsTest(unittest.TestCase):
         self.assertTrue(ANY.matches(42))
         self.assertTrue(ANY.matches(object()))
 
-    def test_various_repr(self):
-        self.assertEquals(repr(VARIOUS), "VARIOUS")
+    def test_is_repr(self):
+        self.assertEquals(repr(IS("obj")), "IS('obj')")
 
-    def test_various_equals(self):
-        self.assertEquals(VARIOUS, VARIOUS)
-        self.assertNotEquals(VARIOUS, object())
-
-    def test_various_matches(self):
-        self.assertTrue(VARIOUS.matches(1))
-        self.assertTrue(VARIOUS.matches(42))
-        self.assertTrue(VARIOUS.matches(object()))
-
-    def test_same_repr(self):
-        self.assertEquals(repr(SAME("obj")), "SAME('obj')")
-
-    def test_same_equals(self):
+    def test_is_equals(self):
         l1 = []
         l2 = []
-        self.assertNotEquals(SAME(l1), l2)
-        self.assertEquals(SAME(l1), SAME(l1))
-        self.assertNotEquals(SAME(l1), SAME(l2))
+        self.assertNotEquals(IS(l1), l2)
+        self.assertEquals(IS(l1), IS(l1))
+        self.assertNotEquals(IS(l1), IS(l2))
 
-    def test_same_matches(self):
+    def test_is_matches(self):
         l1 = []
         l2 = []
-        self.assertTrue(SAME(l1).matches(l1))
-        self.assertFalse(SAME(l1).matches(l2))
-        self.assertFalse(SAME(l1).matches(ANY))
+        self.assertTrue(IS(l1).matches(l1))
+        self.assertFalse(IS(l1).matches(l2))
+        self.assertFalse(IS(l1).matches(ANY))
 
     def test_contains_repr(self):
         self.assertEquals(repr(CONTAINS("obj")), "CONTAINS('obj')")
@@ -1354,6 +1624,18 @@ class MatchParamsTest(unittest.TestCase):
             def __contains__(self, value):
                 return True
         self.assertTrue(CONTAINS(1).matches(C()))
+
+    def test_in_repr(self):
+        self.assertEquals(repr(IN("obj")), "IN('obj')")
+
+    def test_in_equals(self):
+        self.assertEquals(IN([1]), IN([1]))
+        self.assertNotEquals(IN([1]), IN(1))
+
+    def test_in_matches(self):
+        self.assertTrue(IN([1]).matches(1))
+        self.assertFalse(IN([1]).matches([1]))
+        self.assertFalse(IN([1]).matches(object()))
 
     def test_normal(self):
         self.true((), {}, (), {})
@@ -1894,6 +2176,17 @@ class EventTest(unittest.TestCase):
         self.assertEquals(calls, ["task1", "task2"])
 
 
+class ReplayRestoreEventTest(unittest.TestCase):
+
+    def setUp(self):
+        self.event = ReplayRestoreEvent()
+
+    def test_never_matches(self):
+        self.assertEquals(self.event.matches(None), False)
+        self.event.add_task(Task())
+        self.assertEquals(self.event.matches(None), False)
+
+
 class TaskTest(unittest.TestCase):
 
     def setUp(self):
@@ -1913,6 +2206,25 @@ class TaskTest(unittest.TestCase):
 
     def test_default_restore(self):
         self.assertEquals(self.task.restore(), None)
+
+
+class OnRestoreCallerTest(unittest.TestCase):
+
+    def setUp(self):
+        self.mocker = CleanMocker()
+        self.mock = self.mocker.mock()
+
+    def test_is_task(self):
+        self.assertTrue(isinstance(OnRestoreCaller(None), Task))
+
+    def test_restore(self):
+        calls = []
+        task = OnRestoreCaller(lambda: calls.append("callback"))
+        self.assertEquals(calls, [])
+        task.restore()
+        self.assertEquals(calls, ["callback"])
+        task.restore()
+        self.assertEquals(calls, ["callback", "callback"])
 
 
 class PathMatcherTest(unittest.TestCase):
@@ -2445,9 +2757,6 @@ class ProxyReplacerTest(unittest.TestCase):
         task = ProxyReplacer(mock)
         self.assertEquals(task.mock, mock)
 
-    def test_matches_nothing(self):
-        self.assertFalse(self.task.matches(None))
-
     def test_defaults_to_not_installed(self):
         import calendar
         self.assertEquals(type(calendar), ModuleType)
@@ -2551,9 +2860,6 @@ class PatcherTest(unittest.TestCase):
 
     def test_is_task(self):
         self.assertTrue(isinstance(Patcher(), Task))
-
-    def test_matches_nothing(self):
-        self.assertFalse(self.patcher.matches(None))
 
     def test_is_monitoring_unseen_class_kind(self):
         self.assertFalse(self.patcher.is_monitoring(self.C, "kind"))

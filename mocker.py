@@ -1,4 +1,5 @@
 import __builtin__
+import unittest
 import inspect
 import types
 import sys
@@ -6,7 +7,7 @@ import os
 import gc
 
 
-__all__ = ["Mocker", "expect", "SAME", "CONTAINS", "ANY", "VARIOUS"]
+__all__ = ["Mocker", "expect", "IS", "CONTAINS", "IN", "ANY", "ARGS", "KWARGS"]
 
 
 ERROR_PREFIX = "[Mocker] "
@@ -48,6 +49,98 @@ class expect(object):
     def __call__(self, *args, **kwargs):
         getattr(self._mock.__mocker__, self._attr)(*args, **kwargs)
         return self
+
+
+# --------------------------------------------------------------------
+# Extensions to Python's unittest.
+
+class MockerTestCase(unittest.TestCase):
+    """unittest.TestCase subclass with Mocker support.
+
+    @ivar mocker: The mocker instance.
+
+    This is a convenience only.  Mocker may easily be used with the
+    standard C{unittest.TestCase} class if wanted.
+
+    Test methods have a Mocker instance available on C{self.mocker}.
+    At the end of each test method, expectations of the mocker will
+    be verified, and any requested changes made to the environment
+    will be restored.
+
+    In addition to the integration with Mocker, this class provides
+    a few additional helper methods.
+    """
+
+    expect = expect
+
+    def __init__(self, methodName="runTest"):
+        # So here is the trick: we take the real test method, wrap it on
+        # a function that do the job we have to do, and insert it in the
+        # *instance* dictionary, so that getattr() will return our
+        # replacement rather than the class method.
+        test_method = getattr(self, methodName, None)
+        if test_method is not None:
+            def test_method_wrapper():
+                try:
+                    test_method()
+                except:
+                    self.mocker.restore()
+                    raise
+                else:
+                    self.mocker.restore()
+                    self.mocker.verify()
+            test_method_wrapper.__doc__ = test_method.__doc__
+            setattr(self, methodName, test_method_wrapper)
+
+        self.mocker = Mocker()
+
+        super(MockerTestCase, self).__init__(methodName)
+
+    def failUnlessIs(self, first, second, msg=None):
+        """Assert that C{first} is the same object as C{second}."""
+        if first is not second:
+            raise self.failureException(msg or "%r is not %r" % (first, second))
+
+    def failIfIs(self, first, second, msg=None):
+        """Assert that C{first} is not the same object as C{second}."""
+        if first is second:
+            raise self.failureException(msg or "%r is %r" % (first, second))
+
+    def failUnlessIn(self, first, second, msg=None):
+        """Assert that C{first} is contained in C{second}."""
+        if first not in second:
+            raise self.failureException(msg or "%r not in %r" % (first, second))
+
+    def failIfIn(self, first, second, msg=None):
+        """Assert that C{first} is not contained in C{second}."""
+        if first in second:
+            raise self.failureException(msg or "%r in %r" % (first, second))
+
+    def failUnlessApproximates(self, first, second, tolerance, msg=None):
+        """Assert that C{first} is near C{second} by at most C{tolerance}."""
+        if abs(first - second) > tolerance:
+            raise self.failureException(msg or "abs(%r - %r) > %r" %
+                                        (first, second, tolerance))
+
+    def failIfApproximates(self, first, second, tolerance, msg=None):
+        """Assert that C{first} is far from C{second} by at least C{tolerance}.
+        """
+        if abs(first - second) <= tolerance:
+            raise self.failureException(msg or "abs(%r - %r) <= %r" %
+                                        (first, second, tolerance))
+
+    assertIs = failUnlessIs
+    assertIsNot = failIfIs
+    assertIn = failUnlessIn
+    assertNotIn = failIfIn
+    assertApproximates = failUnlessApproximates
+    assertNotApproximates = failIfApproximates
+
+    # The following is provided for compatibility with Twisted's trial.
+    assertIdentical = assertIs
+    assertNotIdentical = assertIsNot
+    failUnlessIdentical = failUnlessIs
+    failIfIdentical = failIfIs
 
 
 # --------------------------------------------------------------------
@@ -94,9 +187,9 @@ class MockerBase(object):
 
     In this short excerpt a mock object is being created, then an
     expectation of a call to the C{hello()} method was recorded, and
-    when that happens the method should return the value C{10}.  Then,
-    the mocker is put in replay mode, and the expectation is satisfied
-    by calling the C{hello()} method, which indeed returns 10.  Finally,
+    when called the method should return the value C{10}.  Then, the
+    mocker is put in replay mode, and the expectation is satisfied by
+    calling the C{hello()} method, which indeed returns 10.  Finally,
     a call to the L{restore()} method is performed to undo any needed
     changes made in the environment, and the L{verify()} method is
     called to ensure that all defined expectations were met.
@@ -346,7 +439,7 @@ class MockerBase(object):
                         object = getattr(object, attr)
                     break
         mock = self.proxy(object, spec, type, name, passthrough)
-        event = self.add_event(Event())
+        event = self._get_replay_restore_event()
         event.add_task(ProxyReplacer(mock))
         return mock
 
@@ -391,12 +484,20 @@ class MockerBase(object):
         if spec is True:
             spec = object
         patcher = Patcher()
-        event = self.add_event(Event())
+        event = self._get_replay_restore_event()
         event.add_task(patcher)
         mock = Mock(self, object=object, patcher=patcher,
                     passthrough=True, spec=spec)
         object.__mocker_mock__ = mock
         return mock
+
+    def on_restore(self, callback):
+        """Run C{callback()} when the environment state is restored.
+
+        @param callback: Any callable.
+        """
+        event = self._get_replay_restore_event()
+        event.add_task(OnRestoreCaller(callback))
 
     def act(self, path):
         """This is called by mock objects whenever something happens to them.
@@ -675,6 +776,19 @@ class MockerBase(object):
         if type is None:
             self.verify()
         return False
+
+    def _get_replay_restore_event(self):
+        """Return unique L{ReplayRestoreEvent}, creating if needed.
+
+        Some tasks only want to replay/restore.  When that's the case,
+        they shouldn't act on other events during replay.  Also, they
+        can all be put in a single event when that's the case.  Thus,
+        we add a single L{ReplayRestoreEvent} as the first element of
+        the list.
+        """
+        if not self._events or type(self._events[0]) != ReplayRestoreEvent:
+            self._events.insert(0, ReplayRestoreEvent())
+        return self._events[0]
 
 
 class OrderedContext(object):
@@ -1003,12 +1117,6 @@ class ANY(SpecialArgument):
 ANY = ANY()
 
 
-class VARIOUS(SpecialArgument):
-    """Matches zero or more arguments."""
-
-VARIOUS = VARIOUS()
-
-
 class ARGS(SpecialArgument):
     """Matches zero or more positional arguments."""
 
@@ -1021,7 +1129,7 @@ class KWARGS(SpecialArgument):
 KWARGS = KWARGS()
 
 
-class SAME(SpecialArgument):
+class IS(SpecialArgument):
 
     def matches(self, other):
         return self.object is other
@@ -1047,8 +1155,14 @@ class CONTAINS(SpecialArgument):
         return self.object in other
 
 
+class IN(SpecialArgument):
+
+    def matches(self, other):
+        return other in self.object
+
+
 def match_params(args1, kwargs1, args2, kwargs2):
-    """Match the two sets of parameters, considering the special VARIOUS."""
+    """Match the two sets of parameters, considering special parameters."""
 
     has_args = ARGS in args1
     has_kwargs = KWARGS in args1
@@ -1092,7 +1206,7 @@ def match_params(args1, kwargs1, args2, kwargs2):
     # We have something different there. If we don't have positional
     # arguments on the original call, it can't match.
     if not args2:
-        # Unless we have just several VARIOUS (which is bizarre, but..).
+        # Unless we have just several ARGS (which is bizarre, but..).
         for arg1 in args1:
             if arg1 is not ARGS:
                 return False
@@ -1239,6 +1353,13 @@ class Event(object):
             task.restore()
 
 
+class ReplayRestoreEvent(Event):
+    """Helper event for tasks which need replay/restore but shouldn't match."""
+
+    def matches(self, path):
+        return False
+
+
 class Task(object):
     """Element used to track one specific aspect on an event.
 
@@ -1280,6 +1401,16 @@ class Task(object):
 
 # --------------------------------------------------------------------
 # Task implementations.
+
+class OnRestoreCaller(Task):
+    """Call a given callback when restoring."""
+
+    def __init__(self, callback):
+        self._callback = callback
+
+    def restore(self):
+        self._callback()
+
 
 class PathMatcher(Task):
     """Match the action path against a given path."""
@@ -1500,9 +1631,6 @@ class ProxyReplacer(Task):
         self.mock = mock
         self.__mocker_replace__ = False
 
-    def matches(self, path):
-        return False
-
     def replay(self):
         global_replace(self.mock.__mocker_object__, self.mock)
 
@@ -1534,9 +1662,6 @@ class Patcher(Task):
         super(Patcher, self).__init__()
         self._monitored = {} # {kind: {id(object): object}}
         self._patched = {}
-
-    def matches(self, path):
-        return False
 
     def is_monitoring(self, obj, kind):
         monitored = self._monitored.get(kind)
