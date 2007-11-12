@@ -179,9 +179,9 @@ class MockerBase(object):
 
         mock = mocker.mock()
         mock.hello()
-        mocker.result(10)
+        mocker.result("Hi!")
         mocker.replay()
-        assert mock.hello() == 10
+        assert mock.hello() == "Hi!"
         mock.restore()
         mock.verify()
 
@@ -199,9 +199,9 @@ class MockerBase(object):
 
         mock = mocker.mock()
         mock.hello()
-        mocker.result(10)
+        mocker.result("Hi!")
         with mocker:
-            assert mock.hello() == 10
+            assert mock.hello() == "Hi!"
 
     Also, the MockerTestCase class, which integrates the mocker on
     a unittest.TestCase subclass, may be used to reduce the overhead
@@ -212,9 +212,9 @@ class MockerBase(object):
             def test_hello(self):
                 mock = self.mocker.mock()
                 mock.hello()
-                self.mocker.result(10)
+                self.mocker.result("Hi!")
                 self.mocker.replay()
-                assert mock.hello() == 10
+                self.assertEquals(mock.hello(), "Hi!")
     """
 
     _recorders = []
