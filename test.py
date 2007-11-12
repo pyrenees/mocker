@@ -1,6 +1,8 @@
 #!/usr/bin/python
 import unittest
+import tempfile
 import inspect
+import shutil
 import sys
 import os
 import gc
@@ -245,7 +247,12 @@ class ExpectTest(unittest.TestCase):
 class MockerTestCaseTest(unittest.TestCase):
 
     def setUp(self):
-        self.test = MockerTestCase("__init__")
+        self.test = MockerTestCase("shortDescription")
+
+    def tearDown(self):
+        self.test.mocker.restore()
+        # Run it so that any cleanups are performed.
+        self.test.run()
 
     def test_has_mocker(self):
         self.assertEquals(type(self.test.mocker), Mocker)
@@ -509,6 +516,93 @@ class MockerTestCaseTest(unittest.TestCase):
 
         self.assertEquals(get_method("failIfIdentical"),
                           get_method("failIfIs"))
+
+    def test_make_file_returns_filename(self):
+        filename = self.test.makeFile()
+        self.assertEquals(os.path.getsize(filename), 0)
+
+    def test_make_file_cleansup_on_success(self):
+        filename = self.test.makeFile()
+        self.test.run()
+        self.assertEquals(os.path.isfile(filename), False)
+
+    def test_make_file_cleansup_on_failure(self):
+        class MyTest(MockerTestCase):
+            def test_method(self):
+                raise AssertionError("BOOM!")
+        test = MyTest("test_method")
+        filename = test.makeFile()
+        test.run()
+        self.assertEquals(os.path.isfile(filename), False)
+
+    def test_make_file_with_content(self):
+        filename = self.test.makeFile("content")
+        self.assertEquals(open(filename).read(), "content")
+
+    def test_make_file_with_prefix(self):
+        filename = self.test.makeFile(prefix="prefix-")
+        self.assertTrue(os.path.basename(filename).startswith("prefix-"))
+
+    def test_make_file_with_suffix(self):
+        filename = self.test.makeFile(suffix="-suffix")
+        self.assertTrue(os.path.basename(filename).endswith("-suffix"))
+
+    def test_make_file_with_dirname(self):
+        dirname = tempfile.mkdtemp()
+        try:
+            filename = self.test.makeFile(dirname=dirname)
+            self.assertEquals(os.path.dirname(filename), dirname)
+        finally:
+            shutil.rmtree(dirname)
+
+    def test_make_file_with_basename(self):
+        filename = self.test.makeFile(basename="basename")
+        self.assertEquals(os.path.basename(filename), "basename")
+        self.test.run()
+        self.assertFalse(os.path.exists(filename))
+
+    def test_make_file_with_basename_and_dirname(self):
+        dirname = tempfile.mkdtemp()
+        try:
+            filename = self.test.makeFile(dirname=dirname, basename="basename")
+            self.assertEquals(os.path.dirname(filename), dirname)
+            self.assertEquals(os.path.basename(filename), "basename")
+        finally:
+            shutil.rmtree(dirname)
+
+    def test_make_dir_returns_dirname(self):
+        dirname = self.test.makeDir()
+        self.assertEquals(os.path.isdir(dirname), True)
+
+    def test_make_dir_cleansup_on_success(self):
+        dirname = self.test.makeDir()
+        self.test.run()
+        self.assertEquals(os.path.isdir(dirname), False)
+
+    def test_make_dir_cleansup_on_failure(self):
+        class MyTest(MockerTestCase):
+            def test_method(self):
+                raise AssertionError("BOOM!")
+        test = MyTest("test_method")
+        dirname = test.makeDir()
+        test.run()
+        self.assertEquals(os.path.isdir(dirname), False)
+
+    def test_make_dir_with_prefix(self):
+        dirname = self.test.makeDir(prefix="prefix-")
+        self.assertTrue(os.path.basename(dirname).startswith("prefix-"))
+
+    def test_make_dir_with_suffix(self):
+        dirname = self.test.makeDir(suffix="-suffix")
+        self.assertTrue(os.path.basename(dirname).endswith("-suffix"))
+
+    def test_make_dir_with_dirname(self):
+        parent_dirname = tempfile.mkdtemp()
+        try:
+            dirname = self.test.makeDir(dirname=parent_dirname)
+            self.assertEquals(os.path.dirname(dirname), parent_dirname)
+        finally:
+            shutil.rmtree(parent_dirname)
 
 
 class MockerTest(unittest.TestCase):

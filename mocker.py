@@ -4,8 +4,10 @@ Copyright (c) 2007  Gustavo Niemeyer <gustavo@niemeyer.net>
 Graceful platform for test doubles in Python (mocks, stubs, fakes, and dummies).
 """
 import __builtin__
+import tempfile
 import unittest
 import inspect
+import shutil
 import types
 import sys
 import os
@@ -94,9 +96,11 @@ class MockerTestCase(unittest.TestCase):
                 try:
                     test_method()
                 except:
+                    self.__cleanup()
                     self.mocker.restore()
                     raise
                 else:
+                    self.__cleanup()
                     self.mocker.restore()
                     self.mocker.verify()
             test_method_wrapper.__doc__ = test_method.__doc__
@@ -104,7 +108,56 @@ class MockerTestCase(unittest.TestCase):
 
         self.mocker = Mocker()
 
+        self.__cleanup_paths = []
+
         super(MockerTestCase, self).__init__(methodName)
+
+    def __cleanup(self):
+        for path in self.__cleanup_paths:
+            if os.path.isfile(path):
+                os.unlink(path)
+            elif os.path.isdir(path):
+                shutil.rmtree(path)
+
+    def makeFile(self, content=None, suffix="", prefix="tmp", basename=None,
+                 dirname=None):
+        """Create a temporary file and return the path to it.
+
+        @param content: Initial content for the file.
+        @param suffix: Suffix to be given to the file's basename.
+        @param prefix: Prefix to be given to the file's basename.
+        @param basename: Full basename for the file.
+        @param dirname: Put file inside this directory.
+
+        The file is removed after the test runs.
+        """
+        if basename is not None:
+            if dirname is None:
+                dirname = tempfile.mkdtemp()
+                self.__cleanup_paths.append(dirname)
+            filename = os.path.join(dirname, basename)
+        else:
+            fd, filename = tempfile.mkstemp(suffix, prefix, dirname)
+            self.__cleanup_paths.append(filename)
+            os.close(fd)
+        if content is not None:
+            file = open(filename, "w")
+            file.write(content)
+            file.close()
+        return filename
+
+    def makeDir(self, suffix="", prefix="tmp", dirname=None):
+        """Create a temporary directory and return the path to it.
+
+        @param suffix: Suffix to be given to the file's basename.
+        @param prefix: Prefix to be given to the file's basename.
+        @param dirname: Put directory inside this parent directory.
+
+        The directory is removed after the test runs.
+        """
+        dirname = tempfile.mkdtemp(suffix, prefix, dirname)
+        self.__cleanup_paths.append(dirname)
+        return dirname
 
     def failUnlessIs(self, first, second, msg=None):
         """Assert that C{first} is the same object as C{second}."""

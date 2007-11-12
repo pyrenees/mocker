@@ -1,3 +1,11 @@
+0.9 (2007-XX-XX)
+================
+
+- New MockerTestCase.makeFile() and .makeDir() helpers.  They offer
+  easy creation of temporary files/directories with certainty of
+  removal after tests finish running.
+
+
 0.8 (2007-11-11)
 ================
 
