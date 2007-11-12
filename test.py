@@ -775,6 +775,22 @@ class MockerTest(unittest.TestCase):
         self.assertEquals(mock.__mocker_spec__, C)
         self.assertEquals(mock.__mocker_passthrough__, False)
 
+    def test_proxy_with_submodule_string(self):
+        from os import path
+        module = self.mocker.proxy("os.path")
+        self.assertEquals(type(module), Mock)
+        self.assertEquals(type(module.__mocker_object__), ModuleType)
+        self.assertEquals(module.__mocker_name__, "os.path")
+        self.assertEquals(module.__mocker_object__, path)
+
+    def test_proxy_with_module_function_string(self):
+        mock = self.mocker.proxy("os.path.join.func_name")
+        self.assertEquals(mock.__mocker_object__, "join")
+
+    def test_proxy_with_string_and_name(self):
+        module = self.mocker.proxy("os.path", name="mock")
+        self.assertEquals(module.__mocker_name__, "mock")
+
     def test_replace(self):
         from os import path
         obj = object()

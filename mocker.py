@@ -385,6 +385,22 @@ class MockerBase(object):
                             explicitly requested via the L{passthrough()}
                             method.
         """
+        if isinstance(object, basestring):
+            if name is None:
+                name = object
+            import_stack = object.split(".")
+            attr_stack = []
+            while import_stack:
+                module_path = ".".join(import_stack)
+                try:
+                    object = __import__(module_path, {}, {}, [""])
+                except ImportError:
+                    attr_stack.insert(0, import_stack.pop())
+                    continue
+                else:
+                    for attr in attr_stack:
+                        object = getattr(object, attr)
+                    break
         if spec is True:
             spec = object
         if type is True:
@@ -422,22 +438,6 @@ class MockerBase(object):
                             explicitly requested via the L{passthrough()}
                             method.
         """
-        if isinstance(object, basestring):
-            if name is None:
-                name = object
-            import_stack = object.split(".")
-            attr_stack = []
-            while import_stack:
-                module_path = ".".join(import_stack)
-                try:
-                    object = __import__(module_path, {}, {}, [""])
-                except ImportError:
-                    attr_stack.insert(0, import_stack.pop())
-                    continue
-                else:
-                    for attr in attr_stack:
-                        object = getattr(object, attr)
-                    break
         mock = self.proxy(object, spec, type, name, passthrough)
         event = self._get_replay_restore_event()
         event.add_task(ProxyReplacer(mock))
