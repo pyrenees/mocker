@@ -1,3 +1,8 @@
+"""
+Copyright (c) 2007  Gustavo Niemeyer <gustavo@niemeyer.net>
+
+Graceful platform for test doubles in Python (mocks, stubs, fakes, and dummies).
+"""
 import __builtin__
 import unittest
 import inspect
@@ -8,6 +13,11 @@ import gc
 
 
 __all__ = ["Mocker", "expect", "IS", "CONTAINS", "IN", "ANY", "ARGS", "KWARGS"]
+
+
+__author__ = "Gustavo Niemeyer <gustavo@niemeyer.net>"
+__license__ = "PSF License"
+__version__ = "0.8"
 
 
 ERROR_PREFIX = "[Mocker] "
