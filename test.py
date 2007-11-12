@@ -211,6 +211,18 @@ class IntegrationTest(unittest.TestCase):
         self.assertEquals(list(mock), [1, 2, 3])
         self.mocker.verify()
 
+    def test_replace_builtin_function(self):
+        """
+        Inspection doesn't work on builtin functions, but proxying should
+        work even then (without spec enforcement in these cases).
+        """
+        from zlib import adler32
+        mock = self.mocker.proxy(adler32)
+        mock()
+        self.mocker.result(42)
+        self.mocker.replay()
+        self.assertEquals(mock(), 42)
+
 
 class ExpectTest(unittest.TestCase):
 
@@ -2643,6 +2655,17 @@ class SpecCheckerTest(unittest.TestCase):
                                       "'b' not provided")
         else:
             self.fail("AssertionError not raised")
+
+    def test_unsupported_object_for_getargspec(self):
+        from zlib import adler32
+        # If that fails, this test has to change because either adler32 has
+        # changed, or the implementation of getargspec has changed.
+        self.assertRaises(TypeError, inspect.getargspec, adler32)
+        try:
+            task = SpecChecker(adler32)
+            task.run(self.path("asd"))
+        except TypeError, e:
+            self.fail("TypeError: %s" % str(e))
 
     def test_recorder(self):
         self.mocker.add_recorder(spec_checker_recorder)

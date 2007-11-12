@@ -1581,13 +1581,19 @@ class SpecChecker(Task):
 
     def __init__(self, method):
         self._method = method
+        self._unsupported = False
+
         if method:
-            self._args, self._varargs, self._varkwargs, self._defaults = \
-                inspect.getargspec(method)
-            if self._defaults is None:
-                self._defaults = ()
-            if type(method) is type(self.run):
-                self._args = self._args[1:]
+            try:
+                self._args, self._varargs, self._varkwargs, self._defaults = \
+                    inspect.getargspec(method)
+            except TypeError:
+                self._unsupported = True
+            else:
+                if self._defaults is None:
+                    self._defaults = ()
+                if type(method) is type(self.run):
+                    self._args = self._args[1:]
 
     def get_method(self):
         return self._method
@@ -1601,6 +1607,8 @@ class SpecChecker(Task):
     def run(self, path):
         if not self._method:
             raise AssertionError("Method not found in real specification")
+        if self._unsupported:
+            return # Can't check it. Happens with builtin functions. :-(
         action = path.actions[-1]
         obtained_len = len(action.args)
         obtained_kwargs = action.kwargs.copy()
