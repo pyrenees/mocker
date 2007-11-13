@@ -428,7 +428,10 @@ class MockerBase(object):
         is True), or explicitly (using the L{passthrough()} method
         on the event).
 
-        @param object: Real object to be proxied.
+        @param object: Real object to be proxied, and replaced by the mock
+                       on replay mode.  It may also be an "import path",
+                       such as C{"time.time"}, in which case the object
+                       will be the C{time} function from the C{time} module.
         @param spec: Method calls will be checked for correctness against
                      the given object, which may be a class or an instance
                      where attributes will be looked up.  Defaults to the
@@ -459,6 +462,8 @@ class MockerBase(object):
                     object = __import__(module_path, {}, {}, [""])
                 except ImportError:
                     attr_stack.insert(0, import_stack.pop())
+                    if not import_stack:
+                        raise
                     continue
                 else:
                     for attr in attr_stack:
@@ -481,7 +486,9 @@ class MockerBase(object):
         namespaces, class namespaces, instance namespaces, and so on.
 
         @param object: Real object to be proxied, and replaced by the mock
-                       on replay mode.
+                       on replay mode.  It may also be an "import path",
+                       such as C{"time.time"}, in which case the object
+                       will be the C{time} function from the C{time} module.
         @param spec: Method calls will be checked for correctness against
                      the given object, which may be a class or an instance
                      where attributes will be looked up.  Defaults to the

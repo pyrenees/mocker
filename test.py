@@ -875,6 +875,9 @@ class MockerTest(unittest.TestCase):
         module = self.mocker.proxy("os.path", name="mock")
         self.assertEquals(module.__mocker_name__, "mock")
 
+    def test_proxy_with_unexistent_module(self):
+        self.assertRaises(ImportError, self.mocker.proxy, "unexistent.module")
+
     def test_replace(self):
         from os import path
         obj = object()

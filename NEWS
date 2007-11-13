@@ -9,6 +9,10 @@
   isn't called, and that may not be obvious, so a hook won't be
   exposed for now.
 
+- When using an unexistent import path for Mocker.proxy(), raise an
+  ImportError on the base module, rather than using the actual
+  string as the object (#162315).
+
 
 0.8 (2007-11-11)
 ================
