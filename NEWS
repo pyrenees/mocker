@@ -1,9 +1,13 @@
 0.9 (2007-XX-XX)
 ================
 
-- New MockerTestCase.makeFile() and .makeDir() helpers.  They offer
+- Added MockerTestCase.makeFile() and .makeDir() helpers.  They offer
   easy creation of temporary files/directories with certainty of
   removal after tests finish running.
+
+- Mocker.on_restore() removed.  Restore isn't performed if replay()
+  isn't called, and that may not be obvious, so a hook won't be
+  exposed for now.
 
 
 0.8 (2007-11-11)

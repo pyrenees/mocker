@@ -554,14 +554,6 @@ class MockerBase(object):
         object.__mocker_mock__ = mock
         return mock
 
-    def on_restore(self, callback):
-        """Run C{callback()} when the environment state is restored.
-
-        @param callback: Any callable.
-        """
-        event = self._get_replay_restore_event()
-        event.add_task(OnRestoreCaller(callback))
-
     def act(self, path):
         """This is called by mock objects whenever something happens to them.
 

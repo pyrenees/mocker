@@ -645,16 +645,6 @@ class MockerTest(unittest.TestCase):
         self.assertTrue(self.mocker.is_recording())
         self.assertEquals(calls, ["replay", "restore"])
 
-    def test_on_restore(self):
-        calls = []
-        self.mocker.on_restore(lambda: calls.append("callback"))
-        self.mocker.restore()
-        self.assertEquals(calls, [])
-        self.mocker.replay()
-        self.mocker.restore()
-        self.mocker.restore()
-        self.assertEquals(calls, ["callback"])
-
     def test_reset(self):
         calls = []
         event = self.mocker.add_event(Event())
