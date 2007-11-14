@@ -1514,6 +1514,9 @@ class RunCounter(Task):
             self.max = max
         self._runs = 0
 
+    def replay(self):
+        self._runs = 0
+
     def run(self, path):
         self._runs += 1
         if self._runs > self.max:
@@ -1617,6 +1620,9 @@ class Orderer(Task):
     def __init__(self):
         self._run = False 
         self._dependencies = []
+
+    def replay(self):
+        self._run = False
 
     def run(self, path):
         self._run = True

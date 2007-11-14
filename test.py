@@ -2461,6 +2461,15 @@ class RunCounterTest(unittest.TestCase):
         task.run(self.path)
         task.verify()
 
+    def test_reset_on_replay(self):
+        task = RunCounter(1, 1)
+        task.run(self.path)
+        self.assertRaises(AssertionError, task.run, self.path)
+        task.replay()
+        self.assertRaises(AssertionError, task.verify)
+        task.run(self.path)
+        self.assertRaises(AssertionError, task.run, self.path)
+
     def test_recorder(self):
         run_counter_recorder(self.mocker, self.event)
         (task,) = self.event.get_tasks()
@@ -2534,6 +2543,17 @@ class RunCounterTest(unittest.TestCase):
         self.assertEquals(len(events[1].get_tasks()), 0)
         self.assertEquals(len(events[2].get_tasks()), 1)
         self.assertEquals(len(events[3].get_tasks()), 1)
+
+    def test_reset_on_replay_with_mock(self):
+        mock = self.mocker.mock()
+        mock()
+        self.mocker.count(1)
+        self.mocker.replay()
+        mock()
+        self.assertRaises(AssertionError, mock)
+        self.mocker.replay()
+        mock()
+        self.assertRaises(AssertionError, mock)
 
     def test_is_standard_recorder(self):
         self.assertTrue(run_counter_recorder in Mocker.get_recorders())
@@ -2670,6 +2690,22 @@ class OrdererTest(unittest.TestCase):
         self.assertFalse(orderer.has_run())
         orderer.run(self.path)
         self.assertTrue(orderer.has_run())
+
+    def test_reset_on_replay(self):
+        orderer = Orderer()
+        orderer.run(self.path)
+        orderer.replay()
+        self.assertFalse(orderer.has_run())
+
+    def test_reset_on_replay_with_mock(self):
+        self.mocker.add_recorder(path_matcher_recorder)
+        mock = self.mocker.mock()
+        self.mocker.order(mock(1), mock(2))
+        self.mocker.replay()
+        mock(1)
+        mock(2)
+        self.mocker.replay()
+        self.assertRaises(AssertionError, mock, 2)
 
     def test_add_dependency_and_match(self):
         orderer1 = Orderer()

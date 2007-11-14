@@ -2,8 +2,12 @@
 ================
 
 - Added MockerTestCase.makeFile() and .makeDir() helpers.  They offer
-  easy creation of temporary files/directories with certainty of
-  removal after tests finish running.
+  easy creation of temporary files/directories, and ensure that they
+  get removed after each test method runs.
+
+- If the replay() method is called twice, expectations will be fully
+  reset so that several similar tests may be performed in a row by
+  just calling replay() again.
 
 - Mocker.on_restore() removed.  Restore isn't performed if replay()
   isn't called, and that may not be obvious, so a hook won't be
