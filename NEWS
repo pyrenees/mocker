@@ -5,6 +5,12 @@
   easy creation of temporary files/directories, and ensure that they
   get removed after each test method runs.
 
+- Added MockerTestCase.assertMethodsMatch().  It will verify if all
+  public methods found in the class passed as the first argument are
+  also present in the class passed as the second argument, and that
+  they accept the same arguments.  This is useful to verify if a fake
+  or stub class have the same API as the real class being simulated.
+
 - If the replay() method is called twice, expectations will be fully
   reset so that several similar tests may be performed in a row by
   just calling replay() again.

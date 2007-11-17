@@ -192,12 +192,46 @@ class MockerTestCase(unittest.TestCase):
             raise self.failureException(msg or "abs(%r - %r) <= %r" %
                                         (first, second, tolerance))
 
+    def failUnlessMethodsMatch(self, first, second):
+        """Assert that public methods in C{first} are present in C{second}.
+
+        This method asserts that all public methods found in C{first} are also
+        present in C{second} and accept the same arguments.  C{first} may
+        have its own private methods, though, and may not have all methods
+        found in C{second}.  Note that if a private method in C{first} matches
+        the name of one in C{second}, their specification is still compared.
+
+        This is useful to verify if a fake or stub class have the same API as
+        the real class being simulated.
+        """
+        first_methods = dict(inspect.getmembers(first, inspect.ismethod))
+        second_methods = dict(inspect.getmembers(second, inspect.ismethod))
+        for name, first_method in first_methods.items():
+            first_argspec = inspect.getargspec(first_method)
+            first_formatted = inspect.formatargspec(*first_argspec)
+
+            second_method = second_methods.get(name)
+            if second_method is None:
+                if name[:1] == "_":
+                    continue # First may have its own private methods.
+                raise self.failureException("%s.%s%s not present in %s" %
+                    (first.__name__, name, first_formatted, second.__name__))
+
+            second_argspec = inspect.getargspec(second_method)
+            if first_argspec != second_argspec:
+                second_formatted = inspect.formatargspec(*second_argspec)
+                raise self.failureException("%s.%s%s != %s.%s%s" %
+                    (first.__name__, name, first_formatted,
+                     second.__name__, name, second_formatted))
+
+
     assertIs = failUnlessIs
     assertIsNot = failIfIs
     assertIn = failUnlessIn
     assertNotIn = failIfIn
     assertApproximates = failUnlessApproximates
     assertNotApproximates = failIfApproximates
+    assertMethodsMatch = failUnlessMethodsMatch
 
     # The following is provided for compatibility with Twisted's trial.
     assertIdentical = assertIs

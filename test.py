@@ -481,6 +481,65 @@ class MockerTestCaseTest(unittest.TestCase):
         except AssertionError:
             self.fail("AssertionError shouldn't be raised")
 
+    def test_fail_unless_methods_match_raises_on_different_method(self):
+        class Fake(object):
+            def method(self, a): pass
+        class Real(object):
+            def method(self, b): pass
+        try:
+            self.test.failUnlessMethodsMatch(Fake, Real)
+        except AssertionError, e:
+            self.assertEquals(str(e), "Fake.method(self, a) != "
+                                      "Real.method(self, b)")
+        else:
+            self.fail("AssertionError not raised")
+
+    def test_fail_unless_methods_match_raises_on_missing_method(self):
+        class Fake(object):
+            def method(self, a): pass
+        class Real(object):
+            pass
+        try:
+            self.test.failUnlessMethodsMatch(Fake, Real)
+        except AssertionError, e:
+            self.assertEquals(str(e), "Fake.method(self, a) not present "
+                                      "in Real")
+        else: self.fail("AssertionError not raised")
+
+    def test_fail_unless_methods_match_succeeds_on_missing_priv_method(self):
+        class Fake(object):
+            def _method(self, a): pass
+        class Real(object):
+            pass
+        try:
+            self.test.failUnlessMethodsMatch(Fake, Real)
+        except AssertionError, e:
+            self.fail("AssertionError shouldn't be raised")
+
+    def test_fail_unless_methods_match_raises_on_different_priv_method(self):
+        class Fake(object):
+            def _method(self, a): pass
+        class Real(object):
+            def _method(self, b): pass
+        try:
+            self.test.failUnlessMethodsMatch(Fake, Real)
+        except AssertionError, e:
+            self.assertEquals(str(e), "Fake._method(self, a) != "
+                                      "Real._method(self, b)")
+        else:
+            self.fail("AssertionError not raised")
+
+    def test_fail_unless_methods_match_succeeds(self):
+        class Fake(object):
+            def method(self, a): pass
+        class Real(object):
+            def method(self, a): pass
+        obj = []
+        try:
+            self.test.failUnlessMethodsMatch(Fake, Real)
+        except AssertionError:
+            self.fail("AssertionError shouldn't be raised")
+
     def test_aliases(self):
         get_method = MockerTestCase.__dict__.get
 
@@ -501,6 +560,9 @@ class MockerTestCaseTest(unittest.TestCase):
 
         self.assertEquals(get_method("assertNotApproximates"),
                           get_method("failIfApproximates"))
+
+        self.assertEquals(get_method("assertMethodsMatch"),
+                          get_method("failUnlessMethodsMatch"))
 
     def test_twisted_trial_aliases(self):
         get_method = MockerTestCase.__dict__.get
