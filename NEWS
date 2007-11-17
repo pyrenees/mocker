@@ -1,4 +1,4 @@
-0.9 (2007-XX-XX)
+0.9 (2007-11-17)
 ================
 
 - Added MockerTestCase.makeFile() and .makeDir() helpers.  They offer
