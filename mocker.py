@@ -174,6 +174,30 @@ class MockerTestCase(unittest.TestCase):
         if first not in second:
             raise self.failureException(msg or "%r not in %r" % (first, second))
 
+    def failUnlessStartsWith(self, first, second, msg=None):
+        """Assert that C{first} starts with C{second}."""
+        if first[:len(second)] != second:
+            raise self.failureException(msg or "%r doesn't start with %r" %
+                                               (first, second))
+
+    def failIfStartsWith(self, first, second, msg=None):
+        """Assert that C{first} doesn't start with C{second}."""
+        if first[:len(second)] == second:
+            raise self.failureException(msg or "%r starts with %r" %
+                                               (first, second))
+
+    def failUnlessEndsWith(self, first, second, msg=None):
+        """Assert that C{first} starts with C{second}."""
+        if first[len(first)-len(second):] != second:
+            raise self.failureException(msg or "%r doesn't end with %r" %
+                                               (first, second))
+
+    def failIfEndsWith(self, first, second, msg=None):
+        """Assert that C{first} doesn't start with C{second}."""
+        if first[len(first)-len(second):] == second:
+            raise self.failureException(msg or "%r ends with %r" %
+                                               (first, second))
+
     def failIfIn(self, first, second, msg=None):
         """Assert that C{first} is not contained in C{second}."""
         if first in second:
@@ -229,6 +253,10 @@ class MockerTestCase(unittest.TestCase):
     assertIsNot = failIfIs
     assertIn = failUnlessIn
     assertNotIn = failIfIn
+    assertStartsWith = failUnlessStartsWith
+    assertNotStartsWith = failIfStartsWith
+    assertEndsWith = failUnlessEndsWith
+    assertNotEndsWith = failIfEndsWith
     assertApproximates = failUnlessApproximates
     assertNotApproximates = failIfApproximates
     assertMethodsMatch = failUnlessMethodsMatch

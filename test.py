@@ -437,6 +437,114 @@ class MockerTestCaseTest(unittest.TestCase):
         except AssertionError:
             self.fail("AssertionError shouldn't be raised")
 
+    def test_fail_unless_starts_with_raises_on_mismatch(self):
+        try:
+            self.test.failUnlessStartsWith("abc", "def")
+        except AssertionError, e:
+            self.assertEquals(str(e), "'abc' doesn't start with 'def'")
+        else:
+            self.fail("AssertionError not raised")
+
+    def test_fail_unless_starts_with_uses_msg(self):
+        try:
+            self.test.failUnlessStartsWith("abc", "def", "oops!")
+        except AssertionError, e:
+            self.assertEquals(str(e), "oops!")
+        else:
+            self.fail("AssertionError not raised")
+
+    def test_fail_unless_starts_with_succeeds(self):
+        try:
+            self.test.failUnlessStartsWith("abcdef", "abc")
+        except AssertionError:
+            self.fail("AssertionError shouldn't be raised")
+
+    def test_fail_unless_starts_with_works_with_non_strings(self):
+        self.test.failUnlessStartsWith([1, 2, 3], [1, 2])
+        self.assertRaises(AssertionError,
+                          self.test.failUnlessStartsWith, [1, 2, 3], [4, 5, 6])
+
+    def test_fail_if_starts_with_raises_on_mismatch(self):
+        try:
+            self.test.failIfStartsWith("abcdef", "abc")
+        except AssertionError, e:
+            self.assertEquals(str(e), "'abcdef' starts with 'abc'")
+        else:
+            self.fail("AssertionError not raised")
+
+    def test_fail_if_starts_with_uses_msg(self):
+        try:
+            self.test.failIfStartsWith("abcdef", "abc", "oops!")
+        except AssertionError, e:
+            self.assertEquals(str(e), "oops!")
+        else:
+            self.fail("AssertionError not raised")
+
+    def test_fail_if_starts_with_succeeds(self):
+        try:
+            self.test.failIfStartsWith("abc", "def")
+        except AssertionError:
+            self.fail("AssertionError shouldn't be raised")
+
+    def test_fail_if_starts_with_works_with_non_strings(self):
+        self.test.failIfStartsWith([1, 2, 3], [4, 5, 6])
+        self.assertRaises(AssertionError,
+                          self.test.failIfStartsWith, [1, 2, 3], [1, 2])
+
+    def test_fail_unless_ends_with_raises_on_mismatch(self):
+        try:
+            self.test.failUnlessEndsWith("abc", "def")
+        except AssertionError, e:
+            self.assertEquals(str(e), "'abc' doesn't end with 'def'")
+        else:
+            self.fail("AssertionError not raised")
+
+    def test_fail_unless_ends_with_uses_msg(self):
+        try:
+            self.test.failUnlessEndsWith("abc", "def", "oops!")
+        except AssertionError, e:
+            self.assertEquals(str(e), "oops!")
+        else:
+            self.fail("AssertionError not raised")
+
+    def test_fail_unless_ends_with_succeeds(self):
+        try:
+            self.test.failUnlessEndsWith("abcdef", "def")
+        except AssertionError:
+            self.fail("AssertionError shouldn't be raised")
+
+    def test_fail_unless_ends_with_works_with_non_strings(self):
+        self.test.failUnlessEndsWith([1, 2, 3], [2, 3])
+        self.assertRaises(AssertionError,
+                          self.test.failUnlessEndsWith, [1, 2, 3], [4, 5, 6])
+
+    def test_fail_if_ends_with_raises_on_mismatch(self):
+        try:
+            self.test.failIfEndsWith("abcdef", "def")
+        except AssertionError, e:
+            self.assertEquals(str(e), "'abcdef' ends with 'def'")
+        else:
+            self.fail("AssertionError not raised")
+
+    def test_fail_if_ends_with_uses_msg(self):
+        try:
+            self.test.failIfEndsWith("abcdef", "def", "oops!")
+        except AssertionError, e:
+            self.assertEquals(str(e), "oops!")
+        else:
+            self.fail("AssertionError not raised")
+
+    def test_fail_if_ends_with_succeeds(self):
+        try:
+            self.test.failIfEndsWith("abc", "def")
+        except AssertionError:
+            self.fail("AssertionError shouldn't be raised")
+
+    def test_fail_if_ends_with_works_with_non_strings(self):
+        self.test.failIfEndsWith([1, 2, 3], [4, 5, 6])
+        self.assertRaises(AssertionError,
+                          self.test.failIfEndsWith, [1, 2, 3], [2, 3])
+
     def test_fail_unless_approximates_raises_on_mismatch(self):
         try:
             self.test.failUnlessApproximates(1, 2, 0.999)
@@ -554,6 +662,18 @@ class MockerTestCaseTest(unittest.TestCase):
 
         self.assertEquals(get_method("assertNotIn"),
                           get_method("failIfIn"))
+
+        self.assertEquals(get_method("assertStartsWith"),
+                          get_method("failUnlessStartsWith"))
+
+        self.assertEquals(get_method("assertNotStartsWith"),
+                          get_method("failIfStartsWith"))
+
+        self.assertEquals(get_method("assertEndsWith"),
+                          get_method("failUnlessEndsWith"))
+
+        self.assertEquals(get_method("assertNotEndsWith"),
+                          get_method("failIfEndsWith"))
 
         self.assertEquals(get_method("assertApproximates"),
                           get_method("failUnlessApproximates"))
