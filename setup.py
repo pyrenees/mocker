@@ -24,6 +24,7 @@ setup(
     license="PSF License",
     url="http://labix.org/mocker",
     download_url="https://launchpad.net/mocker/+download",
+    py_modules=["mocker"],
     classifiers=[
         "Development Status :: 4 - Beta",
         "Intended Audience :: Developers",
