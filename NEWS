@@ -6,6 +6,10 @@
   environments which inspect the result's type, such as in iPython
   (reported by Alex Dante).
 
+- Now Mocker.mock()/proxy()/replace() accept a 'count' keyword
+  parameter, which if set to False, the default behavior of allowing
+  expressions just once is disabled.
+
 
 0.9.1 (2007-11-18)
 ==================

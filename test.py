@@ -977,6 +977,13 @@ class MockerTest(unittest.TestCase):
         MyMocker.remove_recorder(obj1)
         self.assertEquals(MyMocker.get_recorders(), [obj2])
 
+    def test_mock(self):
+        mock = self.mocker.mock()
+        self.assertEquals(mock.__mocker_name__, None)
+        self.assertEquals(mock.__mocker_spec__, None)
+        self.assertEquals(mock.__mocker_type__, None)
+        self.assertEquals(mock.__mocker_count__, True)
+
     def test_mock_with_name(self):
         mock = self.mocker.mock(name="name")
         self.assertEquals(mock.__mocker_name__, "name")
@@ -997,12 +1004,23 @@ class MockerTest(unittest.TestCase):
         self.assertEquals(mock.__mocker_spec__, C)
         self.assertEquals(mock.__mocker_type__, C)
 
+    def test_mock_with_count(self):
+        class C(object): pass
+        mock = self.mocker.mock(count=False)
+        self.assertEquals(mock.__mocker_count__, False)
+
     def test_proxy(self):
         original = object()
         mock = self.mocker.proxy(original)
         self.assertEquals(type(mock), Mock)
         self.assertEquals(mock.__mocker_object__, original)
         self.assertEquals(mock.__mocker_path__.root_object, original)
+        self.assertEquals(mock.__mocker_count__, True)
+
+    def test_proxy_with_count(self):
+        original = object()
+        mock = self.mocker.proxy(original, count=False)
+        self.assertEquals(mock.__mocker_count__, False)
 
     def test_proxy_with_spec(self):
         original = object()
@@ -1063,13 +1081,14 @@ class MockerTest(unittest.TestCase):
     def test_replace(self):
         from os import path
         obj = object()
-        proxy = self.mocker.replace(obj, spec=object, name="obj",
+        proxy = self.mocker.replace(obj, spec=object, name="obj", count=False,
                                     passthrough=False)
         self.assertEquals(type(proxy), Mock)
         self.assertEquals(type(proxy.__mocker_object__), object)
         self.assertEquals(proxy.__mocker_object__, obj)
         self.assertEquals(proxy.__mocker_spec__, object)
         self.assertEquals(proxy.__mocker_name__, "obj")
+        self.assertEquals(proxy.__mocker_count__, False)
         (event,) = self.mocker.get_events()
         self.assertEquals(type(event), ReplayRestoreEvent)
         (task,) = event.get_tasks()
@@ -2065,6 +2084,7 @@ class MockTest(unittest.TestCase):
         self.assertEquals(self.mock.__mocker_passthrough__, False)
         self.assertEquals(self.mock.__mocker_patcher__, None)
         self.assertEquals(self.mock.__mocker_replace__, False)
+        self.assertEquals(self.mock.__mocker_count__, True)
 
     def test_path(self):
         path = object()
@@ -2674,6 +2694,11 @@ class RunCounterTest(unittest.TestCase):
         self.assertEquals(type(task), ImplicitRunCounter)
         self.assertTrue(task.min == 1)
         self.assertTrue(task.max == 1)
+
+    def test_recorder_wont_record_when_count_is_false(self):
+        self.mock.__mocker_count__ = False
+        run_counter_recorder(self.mocker, self.event)
+        self.assertEquals(self.event.get_tasks(), [])
 
     def test_removal_recorder(self):
         """

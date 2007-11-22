@@ -463,7 +463,8 @@ class MockerBase(object):
                 message.append("")
             raise AssertionError(os.linesep.join(message))
 
-    def mock(self, spec_and_type=None, spec=None, type=None, name=None):
+    def mock(self, spec_and_type=None, spec=None, type=None,
+             name=None, count=True):
         """Return a new mock object.
 
         @param spec_and_type: Handy positional argument which sets both
@@ -476,12 +477,17 @@ class MockerBase(object):
         @param name: Name for the mock object, used in the representation of
                      expressions.  The name is rarely needed, as it's usually
                      guessed correctly from the variable name used.
+        @param count: If set to false, expressions may be executed any number
+                     of times, unless an expectation is explicitly set using
+                     the L{count()} method.  By default, expressions are
+                     expected once.
         """
         if spec_and_type is not None:
             spec = type = spec_and_type
-        return Mock(self, spec=spec, type=type, name=name)
+        return Mock(self, spec=spec, type=type, name=name, count=count)
 
-    def proxy(self, object, spec=True, type=True, name=None, passthrough=True):
+    def proxy(self, object, spec=True, type=True, name=None, count=True,
+              passthrough=True):
         """Return a new mock object which proxies to the given object.
  
         Proxies are useful when only part of the behavior of an object
@@ -508,6 +514,10 @@ class MockerBase(object):
         @param name: Name for the mock object, used in the representation of
                      expressions.  The name is rarely needed, as it's usually
                      guessed correctly from the variable name used.
+        @param count: If set to false, expressions may be executed any number
+                     of times, unless an expectation is explicitly set using
+                     the L{count()} method.  By default, expressions are
+                     expected once.
         @param passthrough: If set to False, passthrough of actions on the
                             proxy to the real object will only happen when
                             explicitly requested via the L{passthrough()}
@@ -536,9 +546,9 @@ class MockerBase(object):
         if type is True:
             type = __builtin__.type(object)
         return Mock(self, spec=spec, type=type, object=object,
-                    name=name, passthrough=passthrough)
+                    name=name, count=count, passthrough=passthrough)
 
-    def replace(self, object, spec=True, type=True, name=None,
+    def replace(self, object, spec=True, type=True, name=None, count=True,
                 passthrough=True):
         """Create a proxy, and replace the original object with the mock.
 
@@ -570,7 +580,7 @@ class MockerBase(object):
                             explicitly requested via the L{passthrough()}
                             method.
         """
-        mock = self.proxy(object, spec, type, name, passthrough)
+        mock = self.proxy(object, spec, type, name, count, passthrough)
         event = self._get_replay_restore_event()
         event.add_task(ProxyReplacer(mock))
         return mock
@@ -944,7 +954,7 @@ recorder = Mocker.add_recorder
 class Mock(object):
 
     def __init__(self, mocker, path=None, name=None, spec=None, type=None,
-                 object=None, passthrough=False, patcher=None):
+                 object=None, passthrough=False, patcher=None, count=True):
         self.__mocker__ = mocker
         self.__mocker_path__ = path or Path(self, object)
         self.__mocker_name__ = name
@@ -954,6 +964,7 @@ class Mock(object):
         self.__mocker_patcher__ = patcher
         self.__mocker_replace__ = False
         self.__mocker_type__ = type
+        self.__mocker_count__ = count
 
     def __mocker_act__(self, kind, args=(), kwargs={}, object=None):
         if self.__mocker_name__ is None:
@@ -1600,8 +1611,9 @@ class ImplicitRunCounter(RunCounter):
 
 @recorder
 def run_counter_recorder(mocker, event):
-    """In principle, any event may be repeated once."""
-    event.add_task(ImplicitRunCounter(1))
+    """Any event may be repeated once, unless disabled by default."""
+    if event.path.root_mock.__mocker_count__:
+        event.add_task(ImplicitRunCounter(1))
 
 @recorder
 def run_counter_removal_recorder(mocker, event):
