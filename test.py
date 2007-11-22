@@ -2042,6 +2042,11 @@ class MockTest(unittest.TestCase):
     def setUp(self):
         self.paths = []
         class StubMocker(object):
+            _recording = True
+            def is_recording(self):
+                return self._recording
+            def replay(self):
+                self._recording = False
             @staticmethod
             def act(path):
                 self.paths.append(path)
@@ -2079,12 +2084,23 @@ class MockTest(unittest.TestCase):
         C = object()
         self.assertEquals(Mock(self.mocker, spec=C).__mocker_spec__, C)
 
-    def test_type(self):
-        def raise_exception(self, path):
-            raise MatchError
-        self.StubMocker.act = raise_exception
+    def test_class_without_type(self):
+        mock = Mock(self.mocker)
+        self.assertEquals(mock.__class__, Mock)
+        self.mocker.replay()
+        self.assertEquals(mock.__class__, Mock)
+
+    def test_class_with_type_when_recording(self):
         class C(object): pass
         mock = Mock(self.mocker, type=C)
+        self.assertEquals(mock.__mocker_type__, C)
+        self.assertEquals(mock.__class__, Mock)
+        self.assertEquals(isinstance(mock, Mock), True)
+
+    def test_class_with_type_when_replaying(self):
+        class C(object): pass
+        mock = Mock(self.mocker, type=C)
+        self.mocker.replay()
         self.assertEquals(mock.__mocker_type__, C)
         self.assertEquals(mock.__class__, C)
         self.assertEquals(isinstance(mock, C), True)

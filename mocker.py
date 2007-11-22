@@ -965,9 +965,6 @@ class Mock(object):
         try:
             return self.__mocker__.act(path)
         except MatchError, exception:
-            if (self.__mocker_type__ is not None and
-                kind == "getattr" and args == ("__class__",)):
-                return self.__mocker_type__
             root_mock = path.root_mock
             if (path.root_object is not None and
                 root_mock.__mocker_passthrough__):
@@ -986,6 +983,10 @@ class Mock(object):
     def __getattribute__(self, name):
         if name.startswith("__mocker_"):
             return super(Mock, self).__getattribute__(name)
+        if name == "__class__":
+            if self.__mocker__.is_recording() or self.__mocker_type__ is None:
+                return type(self)
+            return self.__mocker_type__
         return self.__mocker_act__("getattr", (name,))
 
     def __setattr__(self, name, value):
