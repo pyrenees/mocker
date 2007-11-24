@@ -1,3 +1,11 @@
+0.9.3 (2007-11-XX)
+==================
+
+- Introduced automatic test coverage verification as part of
+  the test suite, based on the 'coverage' module by Ned Batchelder,
+  to ensure that it continues to have 100% of statement coverage.
+
+
 0.9.2 (2007-11-22)
 ==================
 

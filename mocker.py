@@ -39,7 +39,7 @@ class expect(object):
     """This is a simple helper that allows a different call-style.
 
     With this class one can comfortably do chaining of calls to the
-    mocker object responsible by the object being handler. For instance::
+    mocker object responsible by the object being handled. For instance::
 
         expect(obj.attr).result(3).count(1, 2)
 
@@ -280,15 +280,6 @@ class classinstancemethod(object):
         def bound_method(*args, **kwargs):
             return self.method(cls, obj, *args, **kwargs)
         return bound_method
-
-
-class State(object):
-
-    def __init__(self, name):
-        self._name = name
-
-    def __repr__(self):
-        return self._name
 
 
 class MockerBase(object):
@@ -1602,6 +1593,7 @@ class RunCounter(Task):
                 raise AssertionError("Performed less times than expected.")
             raise AssertionError("Performed more times than expected.")
 
+
 class ImplicitRunCounter(RunCounter):
     """RunCounter inserted by default on any event.
 
@@ -1806,7 +1798,7 @@ def global_replace(remove, install):
     for referrer in gc.get_referrers(remove):
         if (type(referrer) is dict and
             referrer.get("__mocker_replace__", True)):
-            for key, value in referrer.iteritems():
+            for key, value in referrer.items():
                 if value is remove:
                     referrer[key] = install
 

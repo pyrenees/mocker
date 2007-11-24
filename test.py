@@ -9,6 +9,15 @@ import gc
 
 from types import ModuleType
 
+try:
+    import coverage
+except ImportError:
+    coverage = None
+else:
+    # Start coverage check before importing from mocker, to get all of it.
+    coverage.erase()
+    coverage.start()
+
 from mocker import (
     MockerBase, Mocker, Mock, Event, Task, Action, Path, recorder, expect,
     PathMatcher, path_matcher_recorder, RunCounter, ImplicitRunCounter,
@@ -874,6 +883,13 @@ class MockerTest(unittest.TestCase):
         else:
             self.fail("AssertionError not raised")
 
+    def test_verify_errors_need_good_messages(self):
+        class MyEvent(object):
+            def verify(self):
+                raise AssertionError()
+        self.mocker.add_event(MyEvent())
+        self.assertRaises(RuntimeError, self.mocker.verify)
+
     def test_mocker_as_context_manager(self):
         calls = []
         throw = False
@@ -1530,6 +1546,15 @@ class ActionTest(unittest.TestCase):
         self.assertEquals(action.kwargs, objects[2])
         self.assertEquals(action.path, objects[3])
 
+    def test_repr(self):
+        self.assertEquals(repr(Action("kind", "args", "kwargs")),
+                          "Action('kind', 'args', 'kwargs')")
+        self.assertEquals(repr(Action("kind", "args", "kwargs", "path")),
+                          "Action('kind', 'args', 'kwargs', 'path')")
+
+    def test_execute_unknown(self):
+        self.assertRaises(RuntimeError, Action("unknown", (), {}).execute, None)
+
     def test_execute_getattr(self):
         class C(object):
             pass
@@ -1976,6 +2001,12 @@ class MatchParamsTest(unittest.TestCase):
         self.true((1, ANY), {"a": 3}, (1, 3), {"a": 3})
         self.false((ANY,), {}, (), {})
 
+    def test_special_args_matching(self):
+        self.true((1, IN([2])), {}, (1, 2), {})
+        self.true((1, 2), {"a": IN([3])}, (1, 2), {"a": 3})
+        self.false((1, IN([2])), {}, (1, 3), {})
+        self.false((1, 2), {"a": IN([3])}, (1, 2), {"a": 4})
+
     def test_args_alone(self):
         self.true((ARGS,), {}, (), {})
         self.true((ARGS,), {}, (1, 2), {})
@@ -2017,6 +2048,7 @@ class MatchParamsTest(unittest.TestCase):
         self.false((ARGS, 3, 4), {}, (), {})
         self.false((ARGS, 3, 4), {}, (3, 5), {})
         self.false((ARGS, 3, 4), {}, (5, 5), {})
+        self.false((ARGS, 3, 4), {}, (3, 4, 5), {})
         self.false((ARGS, 3, 4), {"a": 1}, (), {})
         self.false((ARGS, 3, 4), {"a": 1}, (3, 4), {})
         self.false((ARGS, 3, 4), {"a": 1}, (3, 4), {"b": 2})
@@ -2469,6 +2501,13 @@ class EventTest(unittest.TestCase):
         else:
             self.fail("AssertionError not raised")
 
+    def test_run_errors_need_good_messages(self):
+        class MyTask(Task):
+            def run(self, path):
+                raise AssertionError()
+        self.event.add_task(MyTask())
+        self.assertRaises(RuntimeError, self.event.run, 42)
+
     def test_satisfied_false(self):
         def raise_error():
             raise AssertionError("An error")
@@ -2507,6 +2546,13 @@ class EventTest(unittest.TestCase):
             self.assertEquals(str(e), message)
         else:
             self.fail("AssertionError not raised")
+
+    def test_verify_errors_need_good_messages(self):
+        class MyTask(Task):
+            def verify(self):
+                raise AssertionError()
+        self.event.add_task(MyTask())
+        self.assertRaises(RuntimeError, self.event.verify)
 
     def test_replay(self):
         calls = []
@@ -3264,6 +3310,9 @@ class PatcherTest(unittest.TestCase):
     def test_is_task(self):
         self.assertTrue(isinstance(Patcher(), Task))
 
+    def test_undefined_repr(self):
+        self.assertEquals(repr(Undefined), "Undefined")
+
     def test_is_monitoring_unseen_class_kind(self):
         self.assertFalse(self.patcher.is_monitoring(self.C, "kind"))
 
@@ -3360,6 +3409,18 @@ class PatcherTest(unittest.TestCase):
         self.patcher.patch_attr(self.C, "attr", "patch")
         self.assertEquals(self.patcher.get_unpatched_attr(self.D(), "attr"),
                           "original")
+
+    def test_get_unpatched_attr_on_subclass_with_descriptor(self):
+        calls = []
+        class Property(object):
+            def __get__(self, obj, cls):
+                calls.append((obj, cls))
+                return "original"
+        self.C.attr = Property()
+        self.patcher.patch_attr(self.C, "attr", "patch")
+        self.assertEquals(self.patcher.get_unpatched_attr(self.D, "attr"),
+                          "original")
+        self.assertEquals(calls, [(None, self.D)])
 
     def test_get_unpatched_attr_on_instance_with_fake_descriptor(self):
         class BadProperty(object):
@@ -3547,5 +3608,25 @@ class PatcherTest(unittest.TestCase):
         self.assertRaises(AssertionError, obj.method)
 
 
+def main():
+    try:
+        unittest.main()
+    finally:
+        print
+        if coverage:
+            coverage.stop()
+            (filename, executed,
+             missing, missing_human) = coverage.analysis("mocker.py")
+            if missing:
+                print "WARNING: Some statements were not executed:"
+                print
+                coverage.report(["mocker.py"])
+            else:
+                print "Tests covered 100% of statements!"
+        else:
+            print "WARNING: No coverage test performed (missing coverage.py)"
+        print
+
+
 if __name__ == "__main__":
-    unittest.main()
+    main()
