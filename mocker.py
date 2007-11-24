@@ -14,6 +14,10 @@ import os
 import gc
 
 
+# That's a single line to prevent breaking coverage tests in 2.4+.
+if sys.version_info < (2, 4): from sets import Set as set
+
+
 __all__ = ["Mocker", "expect", "IS", "CONTAINS", "IN", "ANY", "ARGS", "KWARGS"]
 
 
@@ -261,6 +265,10 @@ class MockerTestCase(unittest.TestCase):
     assertNotApproximates = failIfApproximates
     assertMethodsMatch = failUnlessMethodsMatch
 
+    # The following are missing in Python < 2.4.
+    assertTrue = unittest.TestCase.failUnless
+    assertFalse = unittest.TestCase.failIf
+
     # The following is provided for compatibility with Twisted's trial.
     assertIdentical = assertIs
     assertNotIdentical = assertIsNot
@@ -450,7 +458,7 @@ class MockerBase(object):
             for error in errors:
                 lines = error.splitlines()
                 message.append("=> " + lines.pop(0))
-                message.extend(" " + line for line in lines)
+                message.extend([" " + line for line in lines])
                 message.append("")
             raise AssertionError(os.linesep.join(message))
 
@@ -636,12 +644,17 @@ class MockerBase(object):
                 recorder(self, event)
             return Mock(self, path)
         else:
-            for event in sorted(self._events, key=lambda e:e.satisfied()):
+            satisfied = []
+            for event in self._events:
+                if event.satisfied():
+                    satisfied.append(event)
+                elif event.matches(path):
+                    return event.run(path)
+            for event in satisfied:
                 if event.matches(path):
                     return event.run(path)
             raise MatchError(ERROR_PREFIX + "Unexpected expression: %s" % path)
 
-    @classinstancemethod
     def get_recorders(cls, self):
         """Return recorders associated with this mocker class or instance.
 
@@ -649,8 +662,8 @@ class MockerBase(object):
         classes.  See the L{add_recorder()} method for more information.
         """
         return (self or cls)._recorders[:]
+    get_recorders = classinstancemethod(get_recorders)
 
-    @classinstancemethod
     def add_recorder(cls, self, recorder):
         """Add a recorder to this mocker class or instance.
 
@@ -669,8 +682,8 @@ class MockerBase(object):
         """
         (self or cls)._recorders.append(recorder)
         return recorder
+    add_recorder = classinstancemethod(add_recorder)
 
-    @classinstancemethod
     def remove_recorder(cls, self, recorder):
         """Remove the given recorder from this mocker class or instance.
 
@@ -678,6 +691,7 @@ class MockerBase(object):
         instances.  See the L{add_recorder()} method for more information.
         """
         (self or cls)._recorders.remove(recorder)
+    remove_recorder = classinstancemethod(remove_recorder)
 
     def result(self, value):
         """Make the last recorded event return the given value on replay.
@@ -978,7 +992,7 @@ class Mock(object):
             lines = str(e).splitlines()
             message = [ERROR_PREFIX + "Unmet expectation:", ""]
             message.append("=> " + lines.pop(0))
-            message.extend(" " + line for line in lines)
+            message.extend([" " + line for line in lines])
             message.append("")
             raise AssertionError(os.linesep.join(message))
 
@@ -1148,12 +1162,12 @@ class Path(object):
         self.actions = tuple(actions)
         self.__mocker_replace__ = False
 
-    @property
     def parent_path(self):
         if not self.actions:
             return None
         return self.actions[-1].path
-
+    parent_path = property(parent_path)
+ 
     def __add__(self, action):
         """Return a new path which includes the given action at the end."""
         return self.__class__(self.root_mock, self.root_object,
@@ -1207,7 +1221,9 @@ class Path(object):
                 result = "del %s.%s" % (result, action.args[0])
             elif action.kind == "call":
                 args = [repr(x) for x in action.args]
-                for pair in sorted(action.kwargs.iteritems()):
+                items = list(action.kwargs.iteritems())
+                items.sort()
+                for pair in items:
                     args.append("%s=%r" % pair)
                 result = "%s(%s)" % (result, ", ".join(args))
             elif action.kind == "contains":
@@ -1440,7 +1456,7 @@ class Event(object):
             for error in errors:
                 lines = error.splitlines()
                 message.append("- " + lines.pop(0))
-                message.extend("  " + line for line in lines)
+                message.extend(["  " + line for line in lines])
             raise AssertionError(os.linesep.join(message))
         return result
 
@@ -1478,7 +1494,7 @@ class Event(object):
             for error in errors:
                 lines = error.splitlines()
                 message.append("- " + lines.pop(0))
-                message.extend("  " + line for line in lines)
+                message.extend(["  " + line for line in lines])
             raise AssertionError(os.linesep.join(message))
 
     def replay(self):
@@ -1560,9 +1576,10 @@ class PathMatcher(Task):
     def matches(self, path):
         return self.path.matches(path)
 
-@recorder
 def path_matcher_recorder(mocker, event):
     event.add_task(PathMatcher(event.path))
+
+Mocker.add_recorder(path_matcher_recorder)
 
 
 class RunCounter(Task):
@@ -1601,26 +1618,28 @@ class ImplicitRunCounter(RunCounter):
     implicit ones.
     """
 
-@recorder
 def run_counter_recorder(mocker, event):
     """Any event may be repeated once, unless disabled by default."""
     if event.path.root_mock.__mocker_count__:
         event.add_task(ImplicitRunCounter(1))
 
-@recorder
+Mocker.add_recorder(run_counter_recorder)
+
 def run_counter_removal_recorder(mocker, event):
     """
     Events created by getattr actions which lead to other events
     may be repeated any number of times. For that, we remove implicit
-    run counters of any getattr actions leading to current one.
+    run counters of any getattr actions leading to the current one.
     """
     parent_path = event.path.parent_path
-    for event in reversed(mocker.get_events()):
+    for event in mocker.get_events()[::-1]:
         if (event.path is parent_path and
             event.path.actions[-1].kind == "getattr"):
             for task in event.get_tasks():
                 if type(task) is ImplicitRunCounter:
                     event.remove_task(task)
+
+Mocker.add_recorder(run_counter_removal_recorder)
 
 
 class MockReturner(Task):
@@ -1632,7 +1651,6 @@ class MockReturner(Task):
     def run(self, path):
         return Mock(self.mocker, path)
 
-@recorder
 def mock_returner_recorder(mocker, event):
     """Events that lead to other events must return mock objects."""
     parent_path = event.path.parent_path
@@ -1644,6 +1662,8 @@ def mock_returner_recorder(mocker, event):
             else:
                 event.add_task(MockReturner(mocker))
             break
+
+Mocker.add_recorder(mock_returner_recorder)
 
 
 class FunctionRunner(Task):
@@ -1760,7 +1780,6 @@ class SpecChecker(Task):
         if obtained_kwargs and not self._varkwargs:
             self._raise("unknown kwargs: %s" % ", ".join(obtained_kwargs))
 
-@recorder
 def spec_checker_recorder(mocker, event):
     spec = event.path.root_mock.__mocker_spec__
     if spec:
@@ -1773,6 +1792,8 @@ def spec_checker_recorder(mocker, event):
             if actions[0].kind == "getattr" and actions[1].kind == "call":
                 method = getattr(spec, actions[0].args[0], None)
                 event.add_task(SpecChecker(method))
+
+Mocker.add_recorder(spec_checker_recorder)
 
 
 class ProxyReplacer(Task):
@@ -1826,7 +1847,7 @@ class Patcher(Task):
             cls = type(obj)
             if issubclass(cls, type):
                 cls = obj
-            bases = set(id(base) for base in cls.__mro__)
+            bases = set([id(base) for base in cls.__mro__])
             bases.intersection_update(monitored)
             return bool(bases)
         return False
@@ -1915,10 +1936,10 @@ class PatchedMethod(object):
             return mock.__mocker_act__(self._kind, args, kwargs, object)
         return method
 
-
-@recorder
 def patcher_recorder(mocker, event):
     mock = event.path.root_mock
     if mock.__mocker_patcher__ and len(event.path.actions) == 1:
         patcher = mock.__mocker_patcher__
         patcher.monitor(mock.__mocker_object__, event.path.actions[0].kind)
+
+Mocker.add_recorder(patcher_recorder)

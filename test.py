@@ -18,21 +18,28 @@ else:
     coverage.erase()
     coverage.start()
 
-from mocker import (
-    MockerBase, Mocker, Mock, Event, Task, Action, Path, recorder, expect,
-    PathMatcher, path_matcher_recorder, RunCounter, ImplicitRunCounter,
-    run_counter_recorder, run_counter_removal_recorder, MockReturner,
-    mock_returner_recorder, FunctionRunner, Orderer, SpecChecker,
-    spec_checker_recorder, match_params, ANY, IS, CONTAINS, IN, ARGS, KWARGS,
-    MatchError, PathExecuter, ProxyReplacer, Patcher, Undefined, PatchedMethod,
-    MockerTestCase, ReplayRestoreEvent, OnRestoreCaller)
+from mocker import \
+    MockerBase, Mocker, Mock, Event, Task, Action, Path, recorder, expect, \
+    PathMatcher, path_matcher_recorder, RunCounter, ImplicitRunCounter, \
+    run_counter_recorder, run_counter_removal_recorder, MockReturner, \
+    mock_returner_recorder, FunctionRunner, Orderer, SpecChecker, \
+    spec_checker_recorder, match_params, ANY, IS, CONTAINS, IN, ARGS, KWARGS, \
+    MatchError, PathExecuter, ProxyReplacer, Patcher, Undefined, \
+    PatchedMethod, MockerTestCase, ReplayRestoreEvent, OnRestoreCaller
+
+
+class TestCase(unittest.TestCase):
+    """Python 2.3 lacked a couple of useful aliases."""
+    
+    assertTrue = unittest.TestCase.failUnless
+    assertFalse = unittest.TestCase.failIf
 
 
 class CleanMocker(MockerBase):
     """Just a better name for MockerBase in a testing context."""
 
 
-class IntegrationTest(unittest.TestCase):
+class IntegrationTest(TestCase):
 
     def setUp(self):
         self.mocker = Mocker()
@@ -235,7 +242,7 @@ class IntegrationTest(unittest.TestCase):
         self.assertEquals(mock(), 42)
 
 
-class ExpectTest(unittest.TestCase):
+class ExpectTest(TestCase):
 
     def setUp(self):
         self.mocker = CleanMocker()
@@ -253,7 +260,7 @@ class ExpectTest(unittest.TestCase):
         self.assertEquals(obj.attr, 42)
 
 
-class MockerTestCaseTest(unittest.TestCase):
+class MockerTestCaseTest(TestCase):
 
     def setUp(self):
         self.test = MockerTestCase("shortDescription")
@@ -270,7 +277,7 @@ class MockerTestCaseTest(unittest.TestCase):
         self.assertTrue(self.test.expect is expect)
 
     def test_constructor_is_the_same(self):
-        self.assertEquals(inspect.getargspec(unittest.TestCase.__init__),
+        self.assertEquals(inspect.getargspec(TestCase.__init__),
                           inspect.getargspec(MockerTestCase.__init__))
 
     def test_docstring_is_the_same(self):
@@ -284,7 +291,7 @@ class MockerTestCaseTest(unittest.TestCase):
         class MyTest(MockerTestCase):
             def test_method(self):
                 """Hello there!"""
-        class StandardTest(unittest.TestCase):
+        class StandardTest(TestCase):
             def test_method(self):
                 """Hello there!"""
 
@@ -292,7 +299,7 @@ class MockerTestCaseTest(unittest.TestCase):
                           StandardTest("test_method").shortDescription())
 
     def test_missing_method_raises_the_same_error(self):
-        class MyTest(unittest.TestCase):
+        class MyTest(TestCase):
             pass
 
         try:
@@ -708,6 +715,13 @@ class MockerTestCaseTest(unittest.TestCase):
         self.assertEquals(get_method("failIfIdentical"),
                           get_method("failIfIs"))
 
+    def test_missing_python23_aliases(self):
+        self.assertEquals(MockerTestCase.assertTrue.im_func,
+                          MockerTestCase.failUnless.im_func)
+
+        self.assertEquals(MockerTestCase.assertFalse.im_func,
+                          MockerTestCase.failIf.im_func)
+
     def test_make_file_returns_filename(self):
         filename = self.test.makeFile()
         self.assertEquals(os.path.getsize(filename), 0)
@@ -796,14 +810,14 @@ class MockerTestCaseTest(unittest.TestCase):
             shutil.rmtree(parent_dirname)
 
 
-class MockerTest(unittest.TestCase):
+class MockerTest(TestCase):
 
     def setUp(self):
         self.recorded = []
         self.mocker = CleanMocker()
-        @self.mocker.add_recorder
         def recorder(mocker, event):
             self.recorded.append((mocker, event))
+        self.mocker.add_recorder(recorder)
 
         self.action = Action("getattr", ("attr",), {},
                              Path(Mock(self.mocker, name="mock")))
@@ -1533,7 +1547,7 @@ class MockerTest(unittest.TestCase):
         self.assertEquals(mock.__mocker_spec__, None)
 
 
-class ActionTest(unittest.TestCase):
+class ActionTest(TestCase):
 
     def setUp(self):
         self.mock = Mock(None, name="mock")
@@ -1586,7 +1600,7 @@ class ActionTest(unittest.TestCase):
         self.assertEquals(action.execute(obj), 3)
 
     def test_execute_contains(self):
-        obj = set(["a"])
+        obj = ["a"]
         action = Action("contains", ("a",), {})
         self.assertEquals(action.execute(obj), True)
         action = Action("contains", ("b",), {})
@@ -1686,12 +1700,11 @@ class ActionTest(unittest.TestCase):
         self.assertFalse(action1.matches(action2))
 
 
-class PathTest(unittest.TestCase):
+class PathTest(TestCase):
 
     def setUp(self):
         class StubMocker(object):
-            @staticmethod
-            def act(path):
+            def act(self, path):
                 pass
         self.mocker = StubMocker()
         self.mock = Mock(self.mocker, name="obj")
@@ -1919,7 +1932,7 @@ class PathTest(unittest.TestCase):
         self.assertEquals(path.execute(obj), 3)
 
 
-class MatchParamsTest(unittest.TestCase):
+class MatchParamsTest(TestCase):
 
     def true(self, *args):
         self.assertTrue(match_params(*args), repr(args))
@@ -2088,7 +2101,7 @@ class MatchParamsTest(unittest.TestCase):
                    (1, 2, 4, 5, 6), {})
 
 
-class MockTest(unittest.TestCase):
+class MockTest(TestCase):
 
     def setUp(self):
         self.paths = []
@@ -2098,8 +2111,7 @@ class MockTest(unittest.TestCase):
                 return self._recording
             def replay(self):
                 self._recording = False
-            @staticmethod
-            def act(path):
+            def act(_, path):
                 self.paths.append(path)
                 return 42
         self.StubMocker = StubMocker
@@ -2401,7 +2413,7 @@ class MockTest(unittest.TestCase):
 
 
 
-class EventTest(unittest.TestCase):
+class EventTest(TestCase):
 
     def setUp(self):
         self.event = Event()
@@ -2573,7 +2585,7 @@ class EventTest(unittest.TestCase):
         self.assertEquals(calls, ["task1", "task2"])
 
 
-class ReplayRestoreEventTest(unittest.TestCase):
+class ReplayRestoreEventTest(TestCase):
 
     def setUp(self):
         self.event = ReplayRestoreEvent()
@@ -2584,7 +2596,7 @@ class ReplayRestoreEventTest(unittest.TestCase):
         self.assertEquals(self.event.matches(None), False)
 
 
-class TaskTest(unittest.TestCase):
+class TaskTest(TestCase):
 
     def setUp(self):
         self.task = Task()
@@ -2605,7 +2617,7 @@ class TaskTest(unittest.TestCase):
         self.assertEquals(self.task.restore(), None)
 
 
-class OnRestoreCallerTest(unittest.TestCase):
+class OnRestoreCallerTest(TestCase):
 
     def setUp(self):
         self.mocker = CleanMocker()
@@ -2624,7 +2636,7 @@ class OnRestoreCallerTest(unittest.TestCase):
         self.assertEquals(calls, ["callback", "callback"])
 
 
-class PathMatcherTest(unittest.TestCase):
+class PathMatcherTest(TestCase):
 
     def setUp(self):
         self.mocker = CleanMocker()
@@ -2658,7 +2670,7 @@ class PathMatcherTest(unittest.TestCase):
         self.assertTrue(path_matcher_recorder in Mocker.get_recorders())
 
 
-class RunCounterTest(unittest.TestCase):
+class RunCounterTest(TestCase):
 
     def setUp(self):
         self.mocker = CleanMocker()
@@ -2829,7 +2841,7 @@ class RunCounterTest(unittest.TestCase):
         self.assertTrue(run_counter_removal_recorder in Mocker.get_recorders())
 
 
-class MockReturnerTest(unittest.TestCase):
+class MockReturnerTest(TestCase):
 
     def setUp(self):
         self.mocker = CleanMocker()
@@ -2886,7 +2898,7 @@ class MockReturnerTest(unittest.TestCase):
         self.assertTrue(mock_returner_recorder in Mocker.get_recorders())
 
 
-class FunctionRunnerTest(unittest.TestCase):
+class FunctionRunnerTest(TestCase):
 
     def setUp(self):
         self.mocker = CleanMocker()
@@ -2904,7 +2916,7 @@ class FunctionRunnerTest(unittest.TestCase):
         self.assertEquals(result, "((1, 2), {'c': 3})")
 
 
-class PathExecuterTest(unittest.TestCase):
+class PathExecuterTest(TestCase):
 
     def setUp(self):
         self.mocker = CleanMocker()
@@ -2943,7 +2955,7 @@ class PathExecuterTest(unittest.TestCase):
         self.assertEquals(calls, [42])
 
 
-class OrdererTest(unittest.TestCase):
+class OrdererTest(TestCase):
 
     def setUp(self):
         self.mocker = CleanMocker()
@@ -2992,7 +3004,7 @@ class OrdererTest(unittest.TestCase):
         self.assertEquals(orderer.get_dependencies(), [1, 2])
 
 
-class SpecCheckerTest(unittest.TestCase):
+class SpecCheckerTest(TestCase):
 
     def setUp(self):
         class C(object):
@@ -3001,15 +3013,15 @@ class SpecCheckerTest(unittest.TestCase):
             def varargs(self, a, b, c=3, *args): pass
             def varkwargs(self, a, b, c=3, **kwargs): pass
             def varargskwargs(self, a, b, c=3, *args, **kwargs): pass
-            @classmethod
             def klass(cls, a, b, c=3): pass
-            @staticmethod
+            klass = classmethod(klass)
             def static(a, b, c=3): pass
+            static = staticmethod(static)
             def noargs(self): pass
-            @classmethod
             def klassnoargs(cls): pass
-            @staticmethod
+            klassnoargs = classmethod(klassnoargs)
             def staticnoargs(): pass
+            staticnoargs = staticmethod(staticnoargs)
         self.cls = C
         self.mocker = CleanMocker()
         self.mock = self.mocker.mock(self.cls)
@@ -3187,7 +3199,7 @@ class SpecCheckerTest(unittest.TestCase):
         self.bad("unexistent", "")
 
 
-class ProxyReplacerTest(unittest.TestCase):
+class ProxyReplacerTest(TestCase):
 
     def setUp(self):
         self.mocker = CleanMocker()
@@ -3292,7 +3304,7 @@ class ProxyReplacerTest(unittest.TestCase):
         self.assertEquals(type(os.path), ModuleType)
 
 
-class PatcherTest(unittest.TestCase):
+class PatcherTest(TestCase):
 
     def setUp(self):
         self.mocker = Mocker()

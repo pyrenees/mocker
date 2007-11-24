@@ -1,6 +1,11 @@
 0.9.3 (2007-11-XX)
 ==================
 
+- Added support for Python 2.3 (patch by Phillip J. Eby).
+
+- Added MockerTestCase.assert{True,False} aliases, so that they're
+  available even in Python 2.3.
+
 - Introduced automatic test coverage verification as part of
   the test suite, based on the 'coverage' module by Ned Batchelder,
   to ensure that it continues to have 100% of statement coverage.
