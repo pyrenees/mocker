@@ -23,7 +23,7 @@ __all__ = ["Mocker", "expect", "IS", "CONTAINS", "IN", "ANY", "ARGS", "KWARGS"]
 
 __author__ = "Gustavo Niemeyer <gustavo@niemeyer.net>"
 __license__ = "PSF License"
-__version__ = "0.9.2"
+__version__ = "0.9.3"
 
 
 ERROR_PREFIX = "[Mocker] "
