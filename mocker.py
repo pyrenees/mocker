@@ -14,8 +14,8 @@ import os
 import gc
 
 
-# That's a single line to prevent breaking coverage tests in 2.4+.
-if sys.version_info < (2, 4): from sets import Set as set
+if sys.version_info < (2, 4):
+    from sets import Set as set # pragma: nocover
 
 
 __all__ = ["Mocker", "expect", "IS", "CONTAINS", "IN", "ANY", "ARGS", "KWARGS"]
