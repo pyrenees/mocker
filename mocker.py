@@ -98,15 +98,18 @@ class MockerTestCase(unittest.TestCase):
         if test_method is not None:
             def test_method_wrapper():
                 try:
-                    test_method()
+                    result = test_method()
                 except:
                     self.__cleanup()
-                    self.mocker.restore()
                     raise
                 else:
-                    self.__cleanup()
-                    self.mocker.restore()
-                    self.mocker.verify()
+                    if (hasattr(result, "addCallback") and
+                        hasattr(result, "addErrback")):
+                        result.addErrback(self.__cleanup)
+                        result.addCallback(self.__cleanup_verify)
+                    else:
+                        self.__cleanup_verify()
+                    return result
             # Copy all attributes from the original method..
             for attr in dir(test_method):
                 # .. unless they're present in our wrapper already.
@@ -121,12 +124,19 @@ class MockerTestCase(unittest.TestCase):
 
         super(MockerTestCase, self).__init__(methodName)
 
-    def __cleanup(self):
+    def __cleanup_verify(self, result=None):
+        self.__cleanup()
+        self.mocker.verify()
+        return result
+
+    def __cleanup(self, result=None):
         for path in self.__cleanup_paths:
             if os.path.isfile(path):
                 os.unlink(path)
             elif os.path.isdir(path):
                 shutil.rmtree(path)
+        self.mocker.restore()
+        return result
 
     def makeFile(self, content=None, suffix="", prefix="tmp", basename=None,
                  dirname=None):

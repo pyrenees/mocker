@@ -371,6 +371,47 @@ class MockerTestCaseTest(TestCase):
         self.assertEquals(len(result.failures), 1)
         self.assertTrue("mock.x" in result.failures[0][1])
 
+    def test_twisted_trial_deferred_support(self):
+        calls = []
+        callbacks = []
+        errbacks = []
+        deferreds = []
+        class Deferred(object):
+            def addCallback(self, callback):
+                callbacks.append(callback)
+            def addErrback(self, errback):
+                errbacks.append(errback)
+        class MyEvent(Event):
+            def verify(self):
+                calls.append("verify")
+            def restore(self):
+                calls.append("restore")
+        class MyTest(MockerTestCase):
+            def test_method(self):
+                self.mocker.add_event(MyEvent())
+                self.mocker.replay()
+                deferred = Deferred()
+                deferreds.append(deferred)
+                return deferred
+
+        result = unittest.TestResult()
+        test = MyTest("test_method")
+        deferred = test.test_method()
+
+        self.assertEquals(deferred, deferreds[-1])
+        self.assertEquals(calls, [])
+        self.assertEquals(len(callbacks), 1)
+        self.assertEquals(callbacks[-1]("foo"), "foo")
+        self.assertEquals(calls, ["restore", "verify"])
+
+        test.mocker.replay()
+        del calls[:]
+
+        self.assertEquals(len(errbacks), 1)
+        self.assertEquals(errbacks[-1]("foo"), "foo")
+        self.assertEquals(calls, ["restore"])
+
+
     def test_fail_unless_is_raises_on_mismatch(self):
         try:
             self.test.failUnlessIs([], [])

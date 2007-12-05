@@ -1,3 +1,11 @@
+0.X.X (2007-11-XX)
+==================
+
+- Implemented support for Deferred results as understood by
+  Twisted Trial's TestCase, so that coexistence by multiple
+  inheritance is possible and trivial.
+
+
 0.9.3 (2007-11-24)
 ==================
 
