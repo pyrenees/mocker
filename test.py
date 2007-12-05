@@ -217,6 +217,15 @@ class IntegrationTest(TestCase):
         mock.method(1, 2)
         self.assertRaises(AssertionError, mock.method, 1)
 
+    def test_patch_with_spec_and_unexistent(self):
+        class C(object):
+            pass
+        mock = self.mocker.patch(C)
+        mock.method(1, 2)
+        self.mocker.count(0)
+        self.mocker.replay()
+        self.assertRaises(AssertionError, self.mocker.verify)
+
     def test_mock_iter(self):
         """
         list() uses len() as a hint. When we mock iter(), it shouldn't
@@ -3143,6 +3152,15 @@ class SpecCheckerTest(TestCase):
         except AssertionError, e:
             self.assertEquals(str(e), "Specification is normal(a, b, c=3): "
                                       "'b' not provided")
+        else:
+            self.fail("AssertionError not raised")
+
+    def test_verify_unexistent_method(self):
+        task = SpecChecker(None)
+        try:
+            task.verify()
+        except AssertionError, e:
+            self.assertEquals(str(e), "Method not found in real specification")
         else:
             self.fail("AssertionError not raised")
 

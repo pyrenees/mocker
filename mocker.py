@@ -1780,6 +1780,10 @@ class SpecChecker(Task):
         raise AssertionError("Specification is %s%s: %s" %
                              (self._method.__name__, spec, message))
 
+    def verify(self):
+        if not self._method:
+            raise AssertionError("Method not found in real specification")
+
     def run(self, path):
         if not self._method:
             raise AssertionError("Method not found in real specification")

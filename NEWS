@@ -4,6 +4,10 @@
 - MockerTestCase now verifies if the mocker is put in replay
   mode in cases where events were recorded.
 
+- Now when a spec is provided (or with proxy/replace/patch) the
+  existence of the real method is checked even if the mocked
+  method doesn't have to execute (e.g. due to count(0)).
+
 - Implemented support for Deferred results as understood by
   Twisted Trial's TestCase, so that coexistence by multiple
   inheritance is possible and trivial.
