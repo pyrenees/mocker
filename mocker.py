@@ -159,7 +159,7 @@ class MockerTestCase(unittest.TestCase):
         self.__cleanup_funcs.append((func, args, kwargs))
 
     def makeFile(self, content=None, suffix="", prefix="tmp", basename=None,
-                 dirname=None):
+                 dirname=None, path=None):
         """Create a temporary file and return the path to it.
 
         @param content: Initial content for the file.
@@ -170,22 +170,24 @@ class MockerTestCase(unittest.TestCase):
 
         The file is removed after the test runs.
         """
-        if basename is not None:
+        if path is not None:
+            self.__cleanup_paths.append(path)
+        elif basename is not None:
             if dirname is None:
                 dirname = tempfile.mkdtemp()
                 self.__cleanup_paths.append(dirname)
-            filename = os.path.join(dirname, basename)
+            path = os.path.join(dirname, basename)
         else:
-            fd, filename = tempfile.mkstemp(suffix, prefix, dirname)
-            self.__cleanup_paths.append(filename)
+            fd, path = tempfile.mkstemp(suffix, prefix, dirname)
+            self.__cleanup_paths.append(path)
             os.close(fd)
         if content is not None:
-            file = open(filename, "w")
+            file = open(path, "w")
             file.write(content)
             file.close()
-        return filename
+        return path
 
-    def makeDir(self, suffix="", prefix="tmp", dirname=None):
+    def makeDir(self, suffix="", prefix="tmp", dirname=None, path=None):
         """Create a temporary directory and return the path to it.
 
         @param suffix: Suffix to be given to the file's basename.
@@ -194,9 +196,12 @@ class MockerTestCase(unittest.TestCase):
 
         The directory is removed after the test runs.
         """
-        dirname = tempfile.mkdtemp(suffix, prefix, dirname)
-        self.__cleanup_paths.append(dirname)
-        return dirname
+        if path is not None:
+            os.makedirs(path)
+        else:
+            path = tempfile.mkdtemp(suffix, prefix, dirname)
+        self.__cleanup_paths.append(path)
+        return path
 
     def failUnlessIs(self, first, second, msg=None):
         """Assert that C{first} is the same object as C{second}."""

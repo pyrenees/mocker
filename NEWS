@@ -11,6 +11,9 @@
 - New MATCH() argument matcher, which allows using a function
   to match an argument generically.  E.g. MATCH(lambda x: x > 10)
 
+- New 'path' option to MockerTestCase.makeFile() and makeDir(),
+  which allows setting the full target path with a single option.
+
 - Now when a spec is provided (or with proxy/replace/patch) the
   existence of the real method is checked even if the mocked
   method doesn't have to execute (e.g. due to count(0)).

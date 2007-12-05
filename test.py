@@ -863,6 +863,18 @@ class MockerTestCaseTest(TestCase):
         finally:
             shutil.rmtree(dirname)
 
+    def test_make_file_with_path(self):
+        path = tempfile.mktemp()
+        try:
+            filename = self.test.makeFile("", path=path)
+            self.assertEquals(filename, path)
+            self.assertEquals(os.path.getsize(filename), 0)
+            self.test.run()
+            self.assertFalse(os.path.exists(filename))
+        finally:
+            if os.path.isfile(path):
+                os.unlink(path)
+
     def test_make_dir_returns_dirname(self):
         dirname = self.test.makeDir()
         self.assertEquals(os.path.isdir(dirname), True)
@@ -890,12 +902,24 @@ class MockerTestCaseTest(TestCase):
         self.assertTrue(os.path.basename(dirname).endswith("-suffix"))
 
     def test_make_dir_with_dirname(self):
-        parent_dirname = tempfile.mkdtemp()
+        dirname = tempfile.mkdtemp()
         try:
-            dirname = self.test.makeDir(dirname=parent_dirname)
-            self.assertEquals(os.path.dirname(dirname), parent_dirname)
+            path = self.test.makeDir(dirname=dirname)
+            self.assertEquals(os.path.dirname(path), dirname)
         finally:
-            shutil.rmtree(parent_dirname)
+            if os.path.exists(dirname):
+                shutil.rmtree(dirname)
+
+    def test_make_dir_with_path(self):
+        path = tempfile.mktemp()
+        try:
+            self.assertEquals(self.test.makeDir(path=path), path)
+            self.assertEquals(os.path.isdir(path), True)
+            self.test.run()
+            self.assertEquals(os.path.isdir(path), False)
+        finally:
+            if os.path.exists(path):
+                shutil.rmtree(path)
 
 
 class MockerTest(TestCase):
