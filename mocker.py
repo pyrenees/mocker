@@ -107,7 +107,12 @@ class MockerTestCase(unittest.TestCase):
                     self.__cleanup()
                     self.mocker.restore()
                     self.mocker.verify()
-            test_method_wrapper.__doc__ = test_method.__doc__
+            # Copy all attributes from the original method..
+            for attr in dir(test_method):
+                # .. unless they're present in our wrapper already.
+                if not hasattr(test_method_wrapper, attr) or attr == "__doc__":
+                    setattr(test_method_wrapper, attr,
+                            getattr(test_method, attr))
             setattr(self, methodName, test_method_wrapper)
 
         self.mocker = Mocker()

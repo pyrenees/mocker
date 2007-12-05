@@ -276,6 +276,15 @@ class MockerTestCaseTest(TestCase):
     def test_has_expect(self):
         self.assertTrue(self.test.expect is expect)
 
+    def test_attributes_are_the_same(self):
+        class MyTest(MockerTestCase):
+            def test_method(self):
+                pass
+            test_method.foo = "bar"
+        test = MyTest("test_method")
+        self.assertEquals(getattr(test.test_method, "im_class", None), MyTest)
+        self.assertEquals(getattr(test.test_method, "foo", None), "bar")
+
     def test_constructor_is_the_same(self):
         self.assertEquals(inspect.getargspec(TestCase.__init__),
                           inspect.getargspec(MockerTestCase.__init__))
