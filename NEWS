@@ -1,5 +1,9 @@
-0.X.X (2007-11-XX)
+0.10 (2007-11-XX)
 ==================
+
+- Implemented MockerTestCase.addCleanup().  It allows one to
+  register cleanup functions to be called after the test is
+  complete.
 
 - MockerTestCase now verifies if the mocker is put in replay
   mode in cases where events were recorded.

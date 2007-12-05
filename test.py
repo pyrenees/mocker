@@ -373,7 +373,7 @@ class MockerTestCaseTest(TestCase):
         result = unittest.TestResult()
         MyTest("test_method").run(result)
 
-        self.assertEquals(calls, ["restore", "verify"])
+        self.assertEquals(calls, ["verify", "restore"])
         self.assertTrue(result.wasSuccessful())
 
         del calls[:]
@@ -399,6 +399,22 @@ class MockerTestCaseTest(TestCase):
         self.assertEquals(len(result.errors), 0)
         self.assertEquals(len(result.failures), 1)
         self.assertTrue("mock.x" in result.failures[0][1])
+
+    def test_add_cleanup(self):
+        stash = []
+        def func(a, b):
+            stash.append((a, b))
+
+        class MyTest(MockerTestCase):
+            def tearDown(self):
+                self.addCleanup(func, 3, b=4)
+            def test_method(self):
+                self.addCleanup(func, 1, b=2)
+                stash.append(stash[:])
+
+        MyTest("test_method").run()
+
+        self.assertEquals(stash, [[], (1, 2), (3, 4)])
 
     def test_twisted_trial_deferred_support(self):
         calls = []
@@ -431,14 +447,7 @@ class MockerTestCaseTest(TestCase):
         self.assertEquals(calls, [])
         self.assertEquals(len(callbacks), 1)
         self.assertEquals(callbacks[-1]("foo"), "foo")
-        self.assertEquals(calls, ["restore", "verify"])
-
-        test.mocker.replay()
-        del calls[:]
-
-        self.assertEquals(len(errbacks), 1)
-        self.assertEquals(errbacks[-1]("foo"), "foo")
-        self.assertEquals(calls, ["restore"])
+        self.assertEquals(calls, ["verify"])
 
 
     def test_fail_unless_is_raises_on_mismatch(self):

@@ -106,15 +106,16 @@ class MockerTestCase(unittest.TestCase):
                             raise RuntimeError("Mocker must be put in replay "
                                                "mode with self.mocker.replay()")
                 except:
-                    self.__cleanup()
                     raise
                 else:
                     if (hasattr(result, "addCallback") and
                         hasattr(result, "addErrback")):
-                        result.addErrback(self.__cleanup)
-                        result.addCallback(self.__cleanup_verify)
+                        def verify(result):
+                            self.mocker.verify()
+                            return result
+                        result.addCallback(verify)
                     else:
-                        self.__cleanup_verify()
+                        self.mocker.verify()
                     return result
             # Copy all attributes from the original method..
             for attr in dir(test_method):
@@ -124,25 +125,37 @@ class MockerTestCase(unittest.TestCase):
                             getattr(test_method, attr))
             setattr(self, methodName, test_method_wrapper)
 
+        # We could overload run() normally, but other well-known testing
+        # frameworks do it as well, and some of them won't call the super,
+        # which might mean that cleanup wouldn't happen.  With that in mind,
+        # we make integration easier by using the following trick.
+        run_method = self.run
+        def run_wrapper(*args, **kwargs):
+            try:
+                return run_method(*args, **kwargs)
+            finally:
+                self.__cleanup()
+        self.run = run_wrapper
+
         self.mocker = Mocker()
 
+        self.__cleanup_funcs = []
         self.__cleanup_paths = []
 
         super(MockerTestCase, self).__init__(methodName)
 
-    def __cleanup_verify(self, result=None):
-        self.__cleanup()
-        self.mocker.verify()
-        return result
-
-    def __cleanup(self, result=None):
+    def __cleanup(self):
         for path in self.__cleanup_paths:
             if os.path.isfile(path):
                 os.unlink(path)
             elif os.path.isdir(path):
                 shutil.rmtree(path)
         self.mocker.restore()
-        return result
+        for func, args, kwargs in self.__cleanup_funcs:
+            func(*args, **kwargs)
+
+    def addCleanup(self, func, *args, **kwargs):
+        self.__cleanup_funcs.append((func, args, kwargs))
 
     def makeFile(self, content=None, suffix="", prefix="tmp", basename=None,
                  dirname=None):
