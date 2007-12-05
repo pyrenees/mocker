@@ -325,6 +325,26 @@ class MockerTestCaseTest(TestCase):
             self.assertEquals(str(e), str(expected_error))
             self.assertEquals(type(e), type(expected_error))
 
+    def test_raises_runtime_error_if_not_in_replay_mode_with_events(self):
+        class MyTest(MockerTestCase):
+            def test_method(self):
+                pass
+
+        test = MyTest("test_method")
+
+        # That's fine.
+        test.test_method()
+
+        test.mocker.add_event(Event())
+
+        # That's not.
+        self.assertRaises(RuntimeError, test.test_method)
+
+        test.mocker.replay()
+
+        # Fine again.
+        test.test_method()
+
     def test_mocker_is_verified_and_restored_after_test_method_is_run(self):
         calls = []
         class MyEvent(Event):

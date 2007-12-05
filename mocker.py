@@ -98,7 +98,13 @@ class MockerTestCase(unittest.TestCase):
         if test_method is not None:
             def test_method_wrapper():
                 try:
-                    result = test_method()
+                    try:
+                        result = test_method()
+                    finally:
+                        if (self.mocker.is_recording() and
+                            self.mocker.get_events()):
+                            raise RuntimeError("Mocker must be put in replay "
+                                               "mode with self.mocker.replay()")
                 except:
                     self.__cleanup()
                     raise

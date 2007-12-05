@@ -1,6 +1,9 @@
 0.X.X (2007-11-XX)
 ==================
 
+- MockerTestCase now verifies if the mocker is put in replay
+  mode in cases where events were recorded.
+
 - Implemented support for Deferred results as understood by
   Twisted Trial's TestCase, so that coexistence by multiple
   inheritance is possible and trivial.
