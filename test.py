@@ -23,8 +23,8 @@ from mocker import \
     PathMatcher, path_matcher_recorder, RunCounter, ImplicitRunCounter, \
     run_counter_recorder, run_counter_removal_recorder, MockReturner, \
     mock_returner_recorder, FunctionRunner, Orderer, SpecChecker, \
-    spec_checker_recorder, match_params, ANY, IS, CONTAINS, IN, ARGS, KWARGS, \
-    MatchError, PathExecuter, ProxyReplacer, Patcher, Undefined, \
+    spec_checker_recorder, match_params, ANY, IS, CONTAINS, IN, MATCH, ARGS, \
+    KWARGS, MatchError, PathExecuter, ProxyReplacer, Patcher, Undefined, \
     PatchedMethod, MockerTestCase, ReplayRestoreEvent, OnRestoreCaller
 
 
@@ -2088,6 +2088,18 @@ class MatchParamsTest(TestCase):
         self.assertTrue(IN([1]).matches(1))
         self.assertFalse(IN([1]).matches([1]))
         self.assertFalse(IN([1]).matches(object()))
+
+    def test_match_repr(self):
+        self.assertEquals(repr(MATCH("obj")), "MATCH('obj')")
+
+    def test_match_equals(self):
+        obj1, obj2 = [], []
+        self.assertEquals(MATCH(obj1), MATCH(obj1))
+        self.assertNotEquals(MATCH(obj1), MATCH(obj2))
+
+    def test_match_matches(self):
+        self.assertTrue(MATCH(lambda x: x > 10).matches(15))
+        self.assertFalse(MATCH(lambda x: x > 10).matches(5))
 
     def test_normal(self):
         self.true((), {}, (), {})

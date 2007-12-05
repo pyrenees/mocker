@@ -18,7 +18,8 @@ if sys.version_info < (2, 4):
     from sets import Set as set # pragma: nocover
 
 
-__all__ = ["Mocker", "expect", "IS", "CONTAINS", "IN", "ANY", "ARGS", "KWARGS"]
+__all__ = ["Mocker", "expect", "IS", "CONTAINS", "IN", "MATCH",
+           "ANY", "ARGS", "KWARGS"]
 
 
 __author__ = "Gustavo Niemeyer <gustavo@niemeyer.net>"
@@ -1348,6 +1349,15 @@ class IN(SpecialArgument):
 
     def matches(self, other):
         return other in self.object
+
+
+class MATCH(SpecialArgument):
+
+    def matches(self, other):
+        return bool(self.object(other))
+
+    def __eq__(self, other):
+        return type(other) == type(self) and self.object is other.object
 
 
 def match_params(args1, kwargs1, args2, kwargs2):
