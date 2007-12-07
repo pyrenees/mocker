@@ -22,6 +22,10 @@
   Twisted Trial's TestCase, so that coexistence by multiple
   inheritance is possible and trivial.
 
+- MockerTestCase.makeFile() with content=None (the default) now
+  consistently returns an unexistent temporary filename which
+  is properly cleaned up if created.
+
 
 0.9.3 (2007-11-24)
 ==================

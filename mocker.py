@@ -99,16 +99,14 @@ class MockerTestCase(unittest.TestCase):
         if test_method is not None:
             def test_method_wrapper():
                 try:
-                    try:
-                        result = test_method()
-                    finally:
-                        if (self.mocker.is_recording() and
-                            self.mocker.get_events()):
-                            raise RuntimeError("Mocker must be put in replay "
-                                               "mode with self.mocker.replay()")
+                    result = test_method()
                 except:
                     raise
                 else:
+                    if (self.mocker.is_recording() and
+                        self.mocker.get_events()):
+                        raise RuntimeError("Mocker must be put in replay "
+                                           "mode with self.mocker.replay()")
                     if (hasattr(result, "addCallback") and
                         hasattr(result, "addErrback")):
                         def verify(result):
@@ -181,6 +179,8 @@ class MockerTestCase(unittest.TestCase):
             fd, path = tempfile.mkstemp(suffix, prefix, dirname)
             self.__cleanup_paths.append(path)
             os.close(fd)
+            if content is None:
+                os.unlink(path)
         if content is not None:
             file = open(path, "w")
             file.write(content)

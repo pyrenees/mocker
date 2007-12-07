@@ -810,8 +810,13 @@ class MockerTestCaseTest(TestCase):
         self.assertEquals(MockerTestCase.assertFalse.im_func,
                           MockerTestCase.failIf.im_func)
 
-    def test_make_file_returns_filename(self):
+    def test_make_file_returns_writable_filename(self):
         filename = self.test.makeFile()
+        self.assertFalse(os.path.isfile(filename))
+        open(filename, "w").write("Is writable!")
+
+    def test_make_file_creates_file(self):
+        filename = self.test.makeFile("")
         self.assertEquals(os.path.getsize(filename), 0)
 
     def test_make_file_cleansup_on_success(self):
