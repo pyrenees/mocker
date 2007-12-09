@@ -471,7 +471,7 @@ class MockerBase(object):
         """
         self._events.append(event)
         if self._ordering:
-            orderer = event.add_task(Orderer())
+            orderer = event.add_task(Orderer(event.path))
             if self._last_orderer:
                 orderer.add_dependency(self._last_orderer)
             self._last_orderer = orderer
@@ -865,7 +865,7 @@ class MockerBase(object):
                             orderer = task
                             break
                     else:
-                        orderer = Orderer()
+                        orderer = Orderer(path)
                         event.add_task(orderer)
                     if last_orderer:
                         orderer.add_dependency(last_orderer)
@@ -1790,30 +1790,34 @@ class Orderer(Task):
     been run.
     """
 
-    def __init__(self):
+    def __init__(self, path):
+        self.path = path
         self._run = False 
         self._dependencies = []
 
     def replay(self):
         self._run = False
 
-    def run(self, path):
-        self._run = True
-
     def has_run(self):
         return self._run
+
+    def may_run(self, path):
+        for dependency in self._dependencies:
+            if not dependency.has_run():
+                return False
+        return True
+
+    def run(self, path):
+        for dependency in self._dependencies:
+            if not dependency.has_run():
+                raise AssertionError("Should be after: %s" % dependency.path)
+        self._run = True
 
     def add_dependency(self, orderer):
         self._dependencies.append(orderer)
 
     def get_dependencies(self):
         return self._dependencies
-
-    def matches(self, path):
-        for dependency in self._dependencies:
-            if not dependency.has_run():
-                return False
-        return True
 
 
 class SpecChecker(Task):

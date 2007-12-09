@@ -72,11 +72,15 @@ class IntegrationTest(TestCase):
         with_manager.__exit__(None, None, None)
 
         self.mocker.replay()
-
         self.assertRaises(AssertionError, getattr, obj, "y")
         self.assertRaises(AssertionError, getattr, obj, "z")
+
+        self.mocker.replay()
         obj.x
         self.assertRaises(AssertionError, getattr, obj, "z")
+
+        self.mocker.replay()
+        obj.x
         obj.y
         obj.z
 
@@ -1498,24 +1502,28 @@ class MockerTest(TestCase):
         self.assertEquals(events[0].get_tasks(), [other_task])
         other_task_, task1 = events[1].get_tasks()
         self.assertEquals(type(task1), Orderer)
+        self.assertEquals(task1.path, events[1].path)
         self.assertEquals(task1.get_dependencies(), [])
         self.assertEquals(other_task_, other_task)
 
         self.assertEquals(events[2].get_tasks(), [other_task])
         other_task_, task3 = events[3].get_tasks()
         self.assertEquals(type(task3), Orderer)
+        self.assertEquals(task3.path, events[3].path)
         self.assertEquals(task3.get_dependencies(), [task1])
         self.assertEquals(other_task_, other_task)
 
         self.assertEquals(events[4].get_tasks(), [other_task])
         other_task_, task5 = events[5].get_tasks()
         self.assertEquals(type(task5), Orderer)
+        self.assertEquals(task5.path, events[5].path)
         self.assertEquals(task5.get_dependencies(), [task3])
         self.assertEquals(other_task_, other_task)
 
         self.assertEquals(events[6].get_tasks(), [other_task])
         other_task_, task7 = events[7].get_tasks()
         self.assertEquals(type(task7), Orderer)
+        self.assertEquals(task7.path, events[7].path)
         self.assertEquals(task7.get_dependencies(), [task1, task3])
         self.assertEquals(other_task_, other_task)
 
@@ -1540,18 +1548,21 @@ class MockerTest(TestCase):
         self.assertEquals(events[0].get_tasks(), [other_task])
         other_task_, task1 = events[1].get_tasks()
         self.assertEquals(type(task1), Orderer)
+        self.assertEquals(task1.path, events[1].path)
         self.assertEquals(task1.get_dependencies(), [])
         self.assertEquals(other_task_, other_task)
 
         self.assertEquals(events[2].get_tasks(), [other_task])
         other_task_, task3 = events[3].get_tasks()
         self.assertEquals(type(task3), Orderer)
+        self.assertEquals(task3.path, events[3].path)
         self.assertEquals(task3.get_dependencies(), [])
         self.assertEquals(other_task_, other_task)
 
         self.assertEquals(events[4].get_tasks(), [other_task])
         other_task_, task5 = events[5].get_tasks()
         self.assertEquals(type(task5), Orderer)
+        self.assertEquals(task5.path, events[5].path)
         self.assertEquals(task5.get_dependencies(), [task1, task3])
         self.assertEquals(other_task_, other_task)
 
@@ -1576,18 +1587,21 @@ class MockerTest(TestCase):
         self.assertEquals(events[4].get_tasks(), [other_task])
         other_task_, task5 = events[5].get_tasks()
         self.assertEquals(type(task5), Orderer)
+        self.assertEquals(task5.path, events[5].path)
         self.assertEquals(task5.get_dependencies(), [])
         self.assertEquals(other_task_, other_task)
 
         self.assertEquals(events[0].get_tasks(), [other_task])
         other_task_, task1 = events[1].get_tasks()
         self.assertEquals(type(task1), Orderer)
+        self.assertEquals(task1.path, events[1].path)
         self.assertEquals(task1.get_dependencies(), [task5])
         self.assertEquals(other_task_, other_task)
 
         self.assertEquals(events[2].get_tasks(), [other_task])
         other_task_, task3 = events[3].get_tasks()
         self.assertEquals(type(task3), Orderer)
+        self.assertEquals(task3.path, events[3].path)
         self.assertEquals(task3.get_dependencies(), [task5])
         self.assertEquals(other_task_, other_task)
 
@@ -1634,6 +1648,10 @@ class MockerTest(TestCase):
         self.assertEquals(type(task1), Orderer)
         self.assertEquals(type(task2), Orderer)
         self.assertEquals(type(task3), Orderer)
+
+        self.assertEquals(task1.path, events[1].path)
+        self.assertEquals(task2.path, events[2].path)
+        self.assertEquals(task3.path, events[3].path)
 
         self.assertEquals(task1.get_dependencies(), [])
         self.assertEquals(task2.get_dependencies(), [task1])
@@ -3191,16 +3209,19 @@ class OrdererTest(TestCase):
         self.path = Path(self.mock, [self.action])
 
     def test_is_task(self):
-        self.assertTrue(isinstance(Orderer(), Task))
+        self.assertTrue(isinstance(Orderer(self.path), Task))
+
+    def test_path(self):
+        self.assertEquals(Orderer(self.path).path, self.path)
 
     def test_has_run(self):
-        orderer = Orderer()
+        orderer = Orderer(self.path)
         self.assertFalse(orderer.has_run())
         orderer.run(self.path)
         self.assertTrue(orderer.has_run())
 
     def test_reset_on_replay(self):
-        orderer = Orderer()
+        orderer = Orderer(self.path)
         orderer.run(self.path)
         orderer.replay()
         self.assertFalse(orderer.has_run())
@@ -3215,20 +3236,31 @@ class OrdererTest(TestCase):
         self.mocker.replay()
         self.assertRaises(AssertionError, mock, 2)
 
-    def test_add_dependency_and_match(self):
-        orderer1 = Orderer()
-        orderer2 = Orderer()
-        orderer2.add_dependency(orderer1)
-        self.assertFalse(orderer2.matches(None))
-        self.assertTrue(orderer1.matches(None))
-        orderer1.run(self.path)
-        self.assertTrue(orderer2.matches(None))
-
-    def test_get_dependencies(self):
-        orderer = Orderer()
+    def test_add_and_get_dependencies(self):
+        orderer = Orderer(self.path)
         orderer.add_dependency(1)
         orderer.add_dependency(2)
         self.assertEquals(orderer.get_dependencies(), [1, 2])
+
+    def test_may_run(self):
+        orderer1 = Orderer(self.path)
+        orderer2 = Orderer(self.path)
+        orderer2.add_dependency(orderer1)
+        self.assertFalse(orderer2.may_run(None))
+        self.assertTrue(orderer1.may_run(None))
+        orderer1.run(self.path)
+        self.assertTrue(orderer2.may_run(None))
+
+    def test_run_with_missing_dependency(self):
+        orderer1 = Orderer("path1")
+        orderer2 = Orderer("path2")
+        orderer2.add_dependency(orderer1)
+        try:
+            orderer2.run(None)
+        except AssertionError, e:
+            self.assertEquals(str(e), "Should be after: path1")
+        else:
+            self.fail("AssertionError not raised")
 
 
 class SpecCheckerTest(TestCase):

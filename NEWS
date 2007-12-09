@@ -1,6 +1,8 @@
 0.10 (2007-11-XX)
 ==================
 
+- Greatly improved error messages and logic for expression ordering!
+
 - Implemented MockerTestCase.addCleanup().  It allows one to
   register cleanup functions to be called after the test is
   complete.
@@ -16,11 +18,12 @@
 
 - Now when a spec is provided (or with proxy/replace/patch) the
   existence of the real method is checked even if the mocked
-  method doesn't have to execute (e.g. due to count(0)).
+  method doesn't execute.  This is useful to detect API expectation
+  errors even if count(0) is used (a negative assertion).
 
-- Implemented support for Deferred results as understood by
-  Twisted Trial's TestCase, so that coexistence by multiple
-  inheritance is possible and trivial.
+- Implemented in MockerTestCase support for Deferred results as
+  understood by Twisted Trial's TestCase, so that coexistence by
+  multiple inheritance is possible and trivial.
 
 - MockerTestCase.makeFile() with content=None (the default) now
   consistently returns an unexistent temporary filename which
