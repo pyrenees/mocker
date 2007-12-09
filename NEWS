@@ -29,6 +29,10 @@
 - Fixed problem when requesting order on similar expressions.  The
   second expression might not be accepted.
 
+- When the expression executed isn't exactly the same as the
+  recorded events (e.g. when parameter matchers are used), show in
+  the error message the real expression run, to aid in debugging.
+
 
 0.9.3 (2007-11-24)
 ==================

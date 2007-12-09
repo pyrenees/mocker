@@ -2624,6 +2624,31 @@ class EventTest(TestCase):
         self.assertEquals(calls, [42, 42, 42])
 
     def test_run_errors(self):
+        """When the path representation isn't the same it's shown up."""
+        class MyTask(object):
+            def __init__(self, id, failed):
+                self.id = id
+                self.failed = failed
+            def run(self, path):
+                if self.failed:
+                    raise AssertionError("%d failed" % self.id)
+        event = Event("i.am.a.path")
+        event.add_task(MyTask(1, True))
+        event.add_task(MyTask(2, False))
+        event.add_task(MyTask(3, True))
+
+        try:
+            event.run("i.am.a.path")
+        except AssertionError, e:
+            message = os.linesep.join(["i.am.a.path",
+                                       "- 1 failed",
+                                       "- 3 failed"])
+            self.assertEquals(str(e), message)
+        else:
+            self.fail("AssertionError not raised")
+
+    def test_run_errors_with_different_path_representation(self):
+        """When the path representation isn't the same it's shown up."""
         class MyTask(object):
             def __init__(self, id, failed):
                 self.id = id
@@ -2640,6 +2665,7 @@ class EventTest(TestCase):
             event.run(42)
         except AssertionError, e:
             message = os.linesep.join(["i.am.a.path",
+                                       "- Run: 42", # <==
                                        "- 1 failed",
                                        "- 3 failed"])
             self.assertEquals(str(e), message)

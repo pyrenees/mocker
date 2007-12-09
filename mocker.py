@@ -684,13 +684,17 @@ class MockerBase(object):
                 recorder(self, event)
             return Mock(self, path)
         else:
-            # First run unsatisfied events, then ones not previously run.
-            events = [(event.satisfied()*2 + event.has_run(), event)
-                      for event in self._events]
-            events.sort()
-            for key, event in events:
-                if event.matches(path):
-                    return event.run(path)
+            # First run unsatisfied events, then ones not previously run. We
+            # put the index in the ordering tuple instead of the actual event
+            # because we want a stable sort (ordering between 2 events is
+            # undefined).
+            events = self._events
+            order = [(events[i].satisfied()*2 + events[i].has_run(), i)
+                     for i in range(len(events))]
+            order.sort()
+            for weight, i in order:
+                if events[i].matches(path):
+                    return events[i].run(path)
             raise MatchError(ERROR_PREFIX + "Unexpected expression: %s" % path)
 
     def get_recorders(cls, self):
@@ -1505,6 +1509,8 @@ class Event(object):
                     result = task_result
         if errors:
             message = [str(self.path)]
+            if str(path) != message[0]:
+                message.append("- Run: %s" % path)
             for error in errors:
                 lines = error.splitlines()
                 message.append("- " + lines.pop(0))
