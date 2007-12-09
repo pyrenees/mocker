@@ -1370,27 +1370,33 @@ class MockerTest(TestCase):
         self.assertRaises(AssertionError, self.mocker.act, self.path)
         self.assertEquals(calls, ["matches"])
 
-    def test_replaying_not_satisfied_first(self):
+    def test_replaying_order_not_satisfied_first_then_not_run(self):
         class MyTask1(Task):
             def run(self, path):
                 return "result1"
         class MyTask2(Task):
+            def run(self, path):
+                return "result2"
+        class MyTask3(Task):
             raised = False
             def verify(self):
                 if not self.raised:
                     self.raised = True
                     raise AssertionError("An error")
             def run(self, path):
-                return "result2"
+                return "result3"
         event1 = self.mocker.add_event(Event())
         event1.add_task(MyTask1())
         event2 = self.mocker.add_event(Event())
         event2.add_task(MyTask2())
         event3 = self.mocker.add_event(Event())
-        event3.add_task(MyTask1())
+        event3.add_task(MyTask3())
+        event4 = self.mocker.add_event(Event())
+        event4.add_task(MyTask1())
         self.mocker.replay()
-        self.assertEquals(self.mocker.act(self.path), "result2")
+        self.assertEquals(self.mocker.act(self.path), "result3")
         self.assertEquals(self.mocker.act(self.path), "result1")
+        self.assertEquals(self.mocker.act(self.path), "result2")
 
     def test_recorder_decorator(self):
         result = recorder(42)
@@ -2540,8 +2546,6 @@ class MockTest(TestCase):
                 pass
 
 
-
-
 class EventTest(TestCase):
 
     def setUp(self):
@@ -2648,6 +2652,16 @@ class EventTest(TestCase):
                 raise AssertionError()
         self.event.add_task(MyTask())
         self.assertRaises(RuntimeError, self.event.run, 42)
+
+    def test_has_run(self):
+        self.assertFalse(self.event.has_run())
+        self.event.run(None)
+        self.assertTrue(self.event.has_run())
+
+    def test_has_run_reset_on_replay(self):
+        self.event.run(None)
+        self.event.replay()
+        self.assertFalse(self.event.has_run())
 
     def test_satisfied_false(self):
         def raise_error():

@@ -684,13 +684,11 @@ class MockerBase(object):
                 recorder(self, event)
             return Mock(self, path)
         else:
-            satisfied = []
-            for event in self._events:
-                if event.satisfied():
-                    satisfied.append(event)
-                elif event.matches(path):
-                    return event.run(path)
-            for event in satisfied:
+            # First run unsatisfied events, then ones not previously run.
+            events = [(event.satisfied()*2 + event.has_run(), event)
+                      for event in self._events]
+            events.sort()
+            for key, event in events:
                 if event.matches(path):
                     return event.run(path)
             raise MatchError(ERROR_PREFIX + "Unexpected expression: %s" % path)
@@ -1458,6 +1456,7 @@ class Event(object):
     def __init__(self, path=None):
         self.path = path
         self._tasks = []
+        self._has_run = False
 
     def add_task(self, task):
         """Add a new task to this taks."""
@@ -1477,6 +1476,9 @@ class Event(object):
                 return False
         return bool(self._tasks)
 
+    def has_run(self):
+        return self._has_run
+
     def run(self, path):
         """Run all tasks with the given action.
 
@@ -1487,6 +1489,7 @@ class Event(object):
         The result of this method will be the last result of a task
         which isn't None, or None if they're all None.
         """
+        self._has_run = True
         result = None
         errors = []
         for task in self._tasks:
@@ -1548,6 +1551,7 @@ class Event(object):
 
     def replay(self):
         """Put all tasks in replay mode."""
+        self._has_run = False
         for task in self._tasks:
             task.replay()
 

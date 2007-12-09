@@ -26,6 +26,9 @@
   consistently returns an unexistent temporary filename which
   is properly cleaned up if created.
 
+- Fixed problem when requesting order on similar expressions.  The
+  second expression might not be accepted.
+
 
 0.9.3 (2007-11-24)
 ==================
