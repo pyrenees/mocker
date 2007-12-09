@@ -1370,21 +1370,36 @@ class MockerTest(TestCase):
         self.assertRaises(AssertionError, self.mocker.act, self.path)
         self.assertEquals(calls, ["matches"])
 
-    def test_replaying_order_not_satisfied_first_then_not_run(self):
-        class MyTask1(Task):
+    def test_replay_order(self):
+        """
+        When playing back, the precedence of events is as follows:
+
+        1. Events with may_run() true
+        2. Events with satisfied() false
+        3. Events with has_run() false
+
+        """
+        class MyTaskBase(Task):
+            postpone = 2
+            def may_run(self, path):
+                if not self.postpone:
+                    return True
+                self.postpone -= 1
             def run(self, path):
-                return "result1"
-        class MyTask2(Task):
-            def run(self, path):
-                return "result2"
-        class MyTask3(Task):
+                return self.__class__.__name__
+        class MyTask1(MyTaskBase): pass
+        class MyTask2(MyTaskBase): pass
+        class MyTask3(MyTaskBase):
             raised = False
             def verify(self):
-                if not self.raised:
+                if not self.postpone and not self.raised:
                     self.raised = True
                     raise AssertionError("An error")
-            def run(self, path):
-                return "result3"
+        class MyTask4(MyTaskBase):
+            postpone = 0
+        class MyTask5(MyTaskBase):
+            postpone = 1
+
         event1 = self.mocker.add_event(Event())
         event1.add_task(MyTask1())
         event2 = self.mocker.add_event(Event())
@@ -1392,11 +1407,27 @@ class MockerTest(TestCase):
         event3 = self.mocker.add_event(Event())
         event3.add_task(MyTask3())
         event4 = self.mocker.add_event(Event())
-        event4.add_task(MyTask1())
+        event4.add_task(MyTask4())
+        event5 = self.mocker.add_event(Event())
+        event5.add_task(MyTask5())
         self.mocker.replay()
-        self.assertEquals(self.mocker.act(self.path), "result3")
-        self.assertEquals(self.mocker.act(self.path), "result1")
-        self.assertEquals(self.mocker.act(self.path), "result2")
+
+        # Labels: [M]ay run, [S]atisfied, [H]as run
+
+        # State: 1=S 2=S 3= 4=MS 5=S
+        self.assertEquals(self.mocker.act(self.path), "MyTask4")
+        # State: 1=S 2=S 3= 4=MSH 5=S
+        self.assertEquals(self.mocker.act(self.path), "MyTask4")
+        # State: 1=MS 2=MS 3=M 4=MSH 5=MS
+        self.assertEquals(self.mocker.act(self.path), "MyTask3")
+        # State: 1=MS 2=MS 3=MSH 4=MSH 5=MS
+        self.assertEquals(self.mocker.act(self.path), "MyTask1")
+        # State: 1=MSH 2=MS 3=MSH 4=MSH 5=MS
+        self.assertEquals(self.mocker.act(self.path), "MyTask2")
+        # State: 1=MSH 2=MSH 3=MSH 4=MSH 5=MS
+        self.assertEquals(self.mocker.act(self.path), "MyTask5")
+        # State: 1=MSH 2=MSH 3=MSH 4=MSH 5=MSH
+        self.assertEquals(self.mocker.act(self.path), "MyTask1")
 
     def test_recorder_decorator(self):
         result = recorder(42)
@@ -2624,7 +2655,6 @@ class EventTest(TestCase):
         self.assertEquals(calls, [42, 42, 42])
 
     def test_run_errors(self):
-        """When the path representation isn't the same it's shown up."""
         class MyTask(object):
             def __init__(self, id, failed):
                 self.id = id
@@ -2688,6 +2718,25 @@ class EventTest(TestCase):
         self.event.run(None)
         self.event.replay()
         self.assertFalse(self.event.has_run())
+
+    def test_may_run(self):
+        calls = []
+        task1 = Task()
+        task1.may_run = lambda path: calls.append((1, path)) or True
+        task2 = Task()
+        task2.may_run = lambda path: calls.append((2, path))
+
+        self.assertEquals(self.event.may_run(42), True)
+
+        self.event.add_task(task1)
+        self.assertEquals(self.event.may_run(42), True)
+        self.assertEquals(calls, [(1, 42)])
+
+        del calls[:]
+        self.event.add_task(task2)
+        self.event.add_task(task1) # Should return on first false.
+        self.assertEquals(self.event.may_run(42), False)
+        self.assertEquals(calls, [(1, 42), (2, 42)])
 
     def test_satisfied_false(self):
         def raise_error():
@@ -2772,6 +2821,9 @@ class TaskTest(TestCase):
 
     def test_default_matches(self):
         self.assertEquals(self.task.matches(None), True)
+
+    def test_default_may_run(self):
+        self.assertEquals(self.task.may_run(None), True)
 
     def test_default_run(self):
         self.assertEquals(self.task.run(None), None)
@@ -2877,6 +2929,12 @@ class RunCounterTest(TestCase):
         task.run(self.path)
         task.run(self.path)
         self.assertRaises(AssertionError, task.run, self.path)
+
+    def test_may_run(self):
+        task = RunCounter(1)
+        self.assertEquals(task.may_run(None), True)
+        task.run(self.path)
+        self.assertEquals(task.may_run(None), False)
 
     def test_verify(self):
         task = RunCounter(2)
@@ -3205,6 +3263,7 @@ class SpecCheckerTest(TestCase):
         for method_name in method_names:
             task = SpecChecker(getattr(self.cls, method_name, None))
             path = eval("self.path(%s)" % args_expr)
+            self.assertEquals(task.may_run(path), True)
             try:
                 task.run(path)
             except AssertionError:
@@ -3217,6 +3276,7 @@ class SpecCheckerTest(TestCase):
         for method_name in method_names:
             task = SpecChecker(getattr(self.cls, method_name, None))
             path = eval("self.path(%s)" % args_expr)
+            self.assertEquals(task.may_run(path), False)
             try:
                 task.run(path)
             except AssertionError:

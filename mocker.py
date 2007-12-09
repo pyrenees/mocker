@@ -684,17 +684,24 @@ class MockerBase(object):
                 recorder(self, event)
             return Mock(self, path)
         else:
-            # First run unsatisfied events, then ones not previously run. We
-            # put the index in the ordering tuple instead of the actual event
-            # because we want a stable sort (ordering between 2 events is
-            # undefined).
+            # First run events that may run, then run unsatisfied events, then
+            # ones not previously run. We put the index in the ordering tuple
+            # instead of the actual event because we want a stable sort
+            # (ordering between 2 events is undefined).
             events = self._events
             order = [(events[i].satisfied()*2 + events[i].has_run(), i)
                      for i in range(len(events))]
             order.sort()
+            postponed = None
             for weight, i in order:
-                if events[i].matches(path):
-                    return events[i].run(path)
+                event = events[i]
+                if event.matches(path):
+                    if event.may_run(path):
+                        return event.run(path)
+                    elif postponed is None:
+                        postponed = event
+            if postponed is not None:
+                return postponed.run(path)
             raise MatchError(ERROR_PREFIX + "Unexpected expression: %s" % path)
 
     def get_recorders(cls, self):
@@ -1483,8 +1490,21 @@ class Event(object):
     def has_run(self):
         return self._has_run
 
+    def may_run(self, path):
+        """Verify if any task would certainly raise an error if run.
+
+        This will call the C{may_run()} method on each task and return
+        false if any of them returns false.
+        """
+        for task in self._tasks:
+            if not task.may_run(path):
+                return False
+        return True
+
     def run(self, path):
         """Run all tasks with the given action.
+
+        @param path: The path of the expression run.
 
         Running an event means running all of its tasks individually and in
         order.  An event should only ever be run if all of its tasks claim to
@@ -1587,6 +1607,10 @@ class Task(object):
         """
         return True
 
+    def may_run(self, path):
+        """Return false if running this task would certainly raise an error."""
+        return True
+
     def run(self, path):
         """Perform the task item, considering that the given action happened.
         """
@@ -1657,6 +1681,9 @@ class RunCounter(Task):
 
     def replay(self):
         self._runs = 0
+
+    def may_run(self, path):
+        return self._runs < self.max
 
     def run(self, path):
         self._runs += 1
@@ -1821,6 +1848,13 @@ class SpecChecker(Task):
     def verify(self):
         if not self._method:
             raise AssertionError("Method not found in real specification")
+
+    def may_run(self, path):
+        try:
+            self.run(path)
+        except AssertionError:
+            return False
+        return True
 
     def run(self, path):
         if not self._method:
