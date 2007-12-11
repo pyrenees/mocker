@@ -1,5 +1,11 @@
+0.10.1 (2007-12-11)
+===================
+
+- Fixed patching of objects which define __getattr__.
+
+
 0.10 (2007-12-09)
-==================
+=================
 
 - Greatly improved error messages and logic for expression ordering!
 

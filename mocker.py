@@ -24,7 +24,7 @@ __all__ = ["Mocker", "expect", "IS", "CONTAINS", "IN", "MATCH",
 
 __author__ = "Gustavo Niemeyer <gustavo@niemeyer.net>"
 __license__ = "PSF License"
-__version__ = "0.10"
+__version__ = "0.10.1"
 
 
 ERROR_PREFIX = "[Mocker] "
@@ -1693,7 +1693,7 @@ class RunCounter(Task):
     def verify(self):
         if not self.min <= self._runs <= self.max:
             if self._runs < self.min:
-                raise AssertionError("Performed less times than expected.")
+                raise AssertionError("Performed fewer times than expected.")
             raise AssertionError("Performed more times than expected.")
 
 
@@ -2016,7 +2016,21 @@ class Patcher(Task):
     def execute(self, action, object):
         attr = self._get_kind_attr(action.kind)
         unpatched = self.get_unpatched_attr(object, attr)
-        return unpatched(*action.args, **action.kwargs)
+        try:
+            return unpatched(*action.args, **action.kwargs)
+        except AttributeError:
+            if action.kind == "getattr":
+                # The normal behavior of Python is to try __getattribute__,
+                # and if it raises AttributeError, try __getattr__.   We've
+                # tried the unpatched __getattribute__ above, and we'll now
+                # try __getattr__.
+                try:
+                    __getattr__ = unpatched("__getattr__")
+                except AttributeError:
+                    pass
+                else:
+                    return __getattr__(*action.args, **action.kwargs)
+            raise
 
 
 class PatchedMethod(object):
@@ -2036,6 +2050,14 @@ class PatchedMethod(object):
             mock = object.__mocker_mock__
             return mock.__mocker_act__(self._kind, args, kwargs, object)
         return method
+
+    def __call__(self, obj, *args, **kwargs):
+        # At least with __getattribute__, Python seems to use *both* the
+        # descriptor API and also call the class attribute directly.  It
+        # looks like an interpreter bug, or at least an undocumented
+        # inconsistency.
+        return self.__get__(obj)(*args, **kwargs)
+
 
 def patcher_recorder(mocker, event):
     mock = event.path.root_mock

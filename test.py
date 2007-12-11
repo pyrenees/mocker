@@ -3825,7 +3825,7 @@ class PatcherTest(TestCase):
         self.assertEquals(obj8.attr, 8)
         self.assertEquals(obj9.attr, "originalD")
 
-    def test_execute_getattr(self):
+    def test_patched_getattr_execute_getattr(self):
         class C(object):
             def __getattribute__(self, attr):
                 if attr == "attr":
@@ -3842,6 +3842,54 @@ class PatcherTest(TestCase):
         self.patcher.monitor(obj, "getattr")
         self.patcher.replay()
         self.assertRaises(AttributeError, self.patcher.execute, action, obj)
+
+    def test_patched_real_getattr_on_different_instances(self):
+        def build_getattr(original):
+            def __getattr__(self, name):
+                if name == "attr":
+                    return original
+                return object.__getattr__(self, name)
+            return __getattr__
+        self.C.__getattr__ = build_getattr("originalC")
+        self.D.__getattr__ = build_getattr("originalD")
+
+        class MockStub(object):
+            def __init__(self, id):
+                self.id = id
+            def __mocker_act__(self, kind, args=(), kwargs={}, object=None):
+                return self.id
+
+        obj1, obj2, obj3, obj4, obj5, obj6 = [self.C() for i in range(6)]
+        obj7, obj8, obj9 = [self.D() for i in range(3)]
+
+        obj2.__mocker_mock__ = MockStub(2)
+        self.patcher.monitor(obj2, "getattr")
+        obj5.__mocker_mock__ = MockStub(5)
+        self.patcher.monitor(obj5, "getattr")
+        obj8.__mocker_mock__ = MockStub(8)
+        self.patcher.monitor(obj8, "getattr")
+
+        self.patcher.replay()
+        self.assertEquals(obj1.attr, "originalC")
+        self.assertEquals(obj2.attr, 2)
+        self.assertEquals(obj3.attr, "originalC")
+        self.assertEquals(obj4.attr, "originalC")
+        self.assertEquals(obj5.attr, 5)
+        self.assertEquals(obj6.attr, "originalC")
+        self.assertEquals(obj7.attr, "originalD")
+        self.assertEquals(obj8.attr, 8)
+        self.assertEquals(obj9.attr, "originalD")
+
+    def test_patched_real_getattr_execute_getattr(self):
+        class C(object):
+            def __getattr__(self, attr):
+                if attr == "attr":
+                    return "original"
+        action = Action("getattr", ("attr",), {})
+        obj = C()
+        self.patcher.monitor(obj, "getattr")
+        self.patcher.replay()
+        self.assertEquals(self.patcher.execute(action, obj), "original")
 
     def test_execute_call(self):
         class C(object):
