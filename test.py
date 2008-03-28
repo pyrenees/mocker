@@ -390,6 +390,17 @@ class MockerTestCaseTest(TestCase):
         self.assertEquals(len(result.failures), 1)
         self.assertTrue("BOOM!" in result.failures[0][1])
 
+        del calls[:]
+
+        result = unittest.TestResult()
+        # Running twice in the same instance (Trial does that).
+        test = MyTest("test_method")
+        test.run(result)
+        test.run(result)
+
+        self.assertEquals(calls, ["verify", "restore", "verify", "restore"])
+        self.assertTrue(result.wasSuccessful())
+
     def test_expectation_failure_acts_appropriately(self):
         class MyTest(MockerTestCase):
             def test_method(self):
