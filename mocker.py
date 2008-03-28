@@ -274,7 +274,7 @@ class MockerTestCase(unittest.TestCase):
         """
         first_methods = dict(inspect.getmembers(first, inspect.ismethod))
         second_methods = dict(inspect.getmembers(second, inspect.ismethod))
-        for name, first_method in first_methods.items():
+        for name, first_method in first_methods.iteritems():
             first_argspec = inspect.getargspec(first_method)
             first_formatted = inspect.formatargspec(*first_argspec)
 
@@ -1920,7 +1920,7 @@ def global_replace(remove, install):
     for referrer in gc.get_referrers(remove):
         if (type(referrer) is dict and
             referrer.get("__mocker_replace__", True)):
-            for key, value in referrer.items():
+            for key, value in list(referrer.iteritems()):
                 if value is remove:
                     referrer[key] = install
 
