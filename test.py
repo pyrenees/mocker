@@ -1756,6 +1756,14 @@ class MockerTest(TestCase):
         mock = self.mocker.patch(C, spec=None)
         self.assertEquals(mock.__mocker_spec__, None)
 
+    def test_patch_and_restore_unsets_mocker_mock(self):
+        class C(object): pass
+        mock = self.mocker.patch(C)
+        self.mocker.replay()
+        self.assertTrue("__mocker_mock__" in C.__dict__)
+        self.mocker.restore()
+        self.assertFalse("__mocker_mock__" in C.__dict__)
+
 
 class ActionTest(TestCase):
 
@@ -3947,8 +3955,6 @@ class PatcherTest(TestCase):
         self.mocker.replay()
         self.assertEquals(self.C().method(), "mocked")
         self.assertRaises(AssertionError, self.C().method)
-        self.mocker.restore()
-        self.assertEquals(getattr(self.C, "__mocker_mock__", None), None)
 
     def test_recorder_instance_getattr(self):
         self.C.attr = "original"
