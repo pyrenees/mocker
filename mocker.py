@@ -115,6 +115,7 @@ class MockerTestCase(unittest.TestCase):
                         result.addCallback(verify)
                     else:
                         self.mocker.verify()
+                        self.mocker.restore()
                     return result
             # Copy all attributes from the original method..
             for attr in dir(test_method):

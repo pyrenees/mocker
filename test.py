@@ -941,6 +941,33 @@ class MockerTestCaseTest(TestCase):
             if os.path.exists(path):
                 shutil.rmtree(path)
 
+    def test_mocker_is_restored_between_method_return_and_cleanup(self):
+        """
+        Certain base classes which MockerTestCase is mixed with may have
+        additional logic after the real test method is run, but before
+        run() returns.  We don't want to perform mocking checks on these.
+        """
+        class CustomTestCase(unittest.TestCase):
+            def run(self, result):
+                import time
+                super(CustomTestCase, self).run(result)
+                self.assertTrue(time.time())
+
+        class MyTest(CustomTestCase, MockerTestCase):
+            def test_method(self):
+                import time
+                time_mock = self.mocker.replace(time.time)
+                time_mock()
+                self.mocker.count(0) # Forbit it entirely.
+                self.mocker.replay()
+
+        result = unittest.TestResult()
+        MyTest("test_method").run(result)
+
+        self.assertEquals(result.errors, [])
+        self.assertEquals(result.failures, [])
+
+
 
 class MockerTest(TestCase):
 
