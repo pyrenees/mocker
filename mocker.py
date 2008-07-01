@@ -670,7 +670,7 @@ class MockerBase(object):
         event.add_task(patcher)
         mock = Mock(self, object=object, patcher=patcher,
                     passthrough=True, spec=spec)
-        object.__mocker_mock__ = mock
+        patcher.patch_attr(object, '__mocker_mock__', mock)
         return mock
 
     def act(self, path):

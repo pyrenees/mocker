@@ -3947,6 +3947,8 @@ class PatcherTest(TestCase):
         self.mocker.replay()
         self.assertEquals(self.C().method(), "mocked")
         self.assertRaises(AssertionError, self.C().method)
+        self.mocker.restore()
+        self.assertEquals(getattr(self.C, "__mocker_mock__", None), None)
 
     def test_recorder_instance_getattr(self):
         self.C.attr = "original"
