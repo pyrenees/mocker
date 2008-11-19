@@ -293,6 +293,27 @@ class MockerTestCase(unittest.TestCase):
                     (first.__name__, name, first_formatted,
                      second.__name__, name, second_formatted))
 
+    def failUnlessRaises(self, excClass, callableObj, *args, **kwargs):
+        """
+        Fail unless an exception of class excClass is thrown by callableObj
+        when invoked with arguments args and keyword arguments kwargs. If a
+        different type of exception is thrown, it will not be caught, and the
+        test case will be deemed to have suffered an error, exactly as for an
+        unexpected exception. It returns the exception instance if it matches
+        the given exception class.
+        """
+        try:
+            result = callableObj(*args, **kwargs)
+        except excClass, e:
+            return e
+        else:
+            if hasattr(excClass, "__name__"):
+                excName = excClass.__name__
+            else:
+                excName = str(excClass)
+            raise self.failureException(
+                "%s not raised (%r returned)" % (excName, result))
+
 
     assertIs = failUnlessIs
     assertIsNot = failIfIs
@@ -305,6 +326,7 @@ class MockerTestCase(unittest.TestCase):
     assertApproximates = failUnlessApproximates
     assertNotApproximates = failIfApproximates
     assertMethodsMatch = failUnlessMethodsMatch
+    assertRaises = failUnlessRaises
 
     # The following are missing in Python < 2.4.
     assertTrue = unittest.TestCase.failUnless
