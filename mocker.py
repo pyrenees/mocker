@@ -2020,6 +2020,7 @@ class Patcher(Task):
         try:
             return unpatched(*action.args, **action.kwargs)
         except AttributeError:
+            type, value, traceback = sys.exc_info()
             if action.kind == "getattr":
                 # The normal behavior of Python is to try __getattribute__,
                 # and if it raises AttributeError, try __getattr__.   We've
@@ -2031,7 +2032,7 @@ class Patcher(Task):
                     pass
                 else:
                     return __getattr__(*action.args, **action.kwargs)
-            raise
+            raise type, value, traceback
 
 
 class PatchedMethod(object):
