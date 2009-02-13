@@ -3983,6 +3983,20 @@ class PatcherTest(TestCase):
         self.assertEquals(obj.method(), "original")
         self.assertRaises(AssertionError, obj.method)
 
+    def test_original_exception_raised(self):
+        class MyClass(object):
+            def non_existing_attribute(self):
+                return self.bad_attribute
+
+        mock_class = self.mocker.patch(MyClass)
+        mock_class.run()
+        self.mocker.replay()
+        my_class = MyClass()
+        try:
+            my_class.non_existing_attribute()
+        except AttributeError, error:
+            message = "'MyClass' object has no attribute 'bad_attribute'"
+            self.assertEquals(message, error.message)
 
 def main():
     try:
