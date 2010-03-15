@@ -2543,6 +2543,10 @@ class MockTest(TestCase):
         self.mocker.act = raise_error
         self.assertEquals(bool(self.mock), True)
 
+    def test_nonzero_with_mock_result(self):
+        self.mocker.act = lambda path: Mock(self.mocker)
+        self.assertEquals(bool(self.mock), True)
+
     def test_iter(self):
         result_mock = Mock(self.mocker)
         self.mocker.act = lambda path: self.paths.append(path) or result_mock

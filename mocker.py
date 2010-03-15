@@ -1092,9 +1092,12 @@ class Mock(object):
 
     def __nonzero__(self):
         try:
-            return self.__mocker_act__("nonzero")
+            result = self.__mocker_act__("nonzero")
         except MatchError, e:
             return True
+        if type(result) is Mock:
+            return True
+        return result
 
     def __iter__(self):
         # XXX On py3k, when next() becomes __next__(), we'll be able
