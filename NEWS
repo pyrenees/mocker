@@ -9,7 +9,10 @@
   tries to use __length_hint__ in some cases.
 
 - __nonzero__ should necessarily return a boolean value, so transform Mock
-    results into True.
+  results into True (#380024).
+
+- Applied change suggested by David Glick to avoid reimporting modules
+  (#529675).
 
 - When setting the temporary __mocker_mock__ attribute, use Mocker.patch()
   so that by the end of the mocking it's properly removed (by Thomas Herve).

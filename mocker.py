@@ -599,13 +599,14 @@ class MockerBase(object):
             while import_stack:
                 module_path = ".".join(import_stack)
                 try:
-                    object = __import__(module_path, {}, {}, [""])
+                    __import__(module_path)
                 except ImportError:
                     attr_stack.insert(0, import_stack.pop())
                     if not import_stack:
                         raise
                     continue
                 else:
+                    object = sys.modules[module_path]
                     for attr in attr_stack:
                         object = getattr(object, attr)
                     break
