@@ -1053,6 +1053,8 @@ class Mock(object):
             if self.__mocker__.is_recording() or self.__mocker_type__ is None:
                 return type(self)
             return self.__mocker_type__
+        if name == "__length_hint__":
+            raise AttributeError("No __length_hint__ here!")
         return self.__mocker_act__("getattr", (name,))
 
     def __setattr__(self, name, value):

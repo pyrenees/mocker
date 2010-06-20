@@ -2524,6 +2524,25 @@ class MockTest(TestCase):
         else:
             self.fail("AttributeError not raised.")
 
+    def test_mock_raises_attribute_error_on_length_hint(self):
+        """
+        In Python 2.6+ list() uses __length_hint__() as a hint. When
+        we mock iter(), it shouldn't explode due to the lack of
+        __length_hint__.
+        """
+        def raise_error(path):
+            raise MatchError("Kaboom!")
+
+        self.mocker.act = raise_error
+        try:
+            self.mock.__length_hint__
+        except AttributeError, e:
+            self.assertEquals(str(e), "No __length_hint__ here!")
+        except MatchError:
+            self.fail("Expected AttributeError, not MatchError.")
+        else:
+            self.fail("AttributeError not raised.")
+
     def test_nonzero(self):
         self.assertEquals(bool(self.mock), True) # True due to 42.
         (path,) = self.paths
@@ -4000,7 +4019,7 @@ class PatcherTest(TestCase):
             obj.use_non_existing_attribute()
         except AttributeError, error:
             message = "'C' object has no attribute 'bad_attribute'"
-            self.assertEquals(message, error.message)
+            self.assertEquals(message, str(error))
 
 
 def main():
