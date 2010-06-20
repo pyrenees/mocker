@@ -52,7 +52,7 @@ __all__ = ["Mocker", "Expect", "expect", "IS", "CONTAINS", "IN", "MATCH",
 
 __author__ = "Gustavo Niemeyer <gustavo@niemeyer.net>"
 __license__ = "BSD"
-__version__ = "0.10.1"
+__version__ = "1.0"
 
 
 ERROR_PREFIX = "[Mocker] "

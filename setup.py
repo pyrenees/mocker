@@ -21,7 +21,7 @@ setup(
     description="Graceful platform for test doubles in Python (mocks, stubs, fakes, and dummies).",
     author="Gustavo Niemeyer",
     author_email="gustavo@niemeyer.net",
-    license="PSF License",
+    license="BSD",
     url="http://labix.org/mocker",
     download_url="https://launchpad.net/mocker/+download",
     py_modules=["mocker"],
