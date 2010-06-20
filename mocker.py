@@ -627,6 +627,8 @@ class MockerBase(object):
                     for attr in attr_stack:
                         object = getattr(object, attr)
                     break
+        if isinstance(object, types.UnboundMethodType):
+            object = object.im_func
         if spec is True:
             spec = object
         if type is True:

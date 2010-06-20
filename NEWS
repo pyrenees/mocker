@@ -4,6 +4,9 @@
 - Changed license to BSD, since the PSF license only applies to Python
   itself (#583335).
 
+- Unwrap bound methods on replace() and proxy(), as suggested
+  by James Henstridge (#270782).
+
 - Fixed support for Python 2.6.  Mocking of iterators was broken in
   certain cases because, even though that's *not* documented, Python
   tries to use __length_hint__ in some cases.

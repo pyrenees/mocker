@@ -210,6 +210,13 @@ class IntegrationTest(TestCase):
         self.assertTrue(os.path.isfile("unexistent"))
         self.assertFalse(os.path.isfile("unexistent"))
 
+    def test_replace_class_method(self):
+        empty = self.mocker.replace("Queue.Queue.empty")
+        expect(empty()).result(False)
+        self.mocker.replay()
+        from Queue import Queue
+        self.assertEquals(Queue().empty(), False)
+        
     def test_patch_with_spec(self):
         class C(object):
             def method(self, a, b):
@@ -1347,6 +1354,11 @@ class MockerTest(TestCase):
         class C(object): pass
         mock = self.mocker.replace(original, passthrough=False)
         self.assertEquals(mock.__mocker_passthrough__, False)
+
+    def test_replace_with_bound_method(self):
+        from Queue import Queue
+        mock = self.mocker.replace(Queue.empty)
+        self.assertEquals(mock.__mocker_object__, Queue.empty.im_func)
 
     def test_add_and_get_event(self):
         self.mocker.add_event(41)
