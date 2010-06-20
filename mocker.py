@@ -1054,6 +1054,8 @@ class Mock(object):
                 return type(self)
             return self.__mocker_type__
         if name == "__length_hint__":
+            # This is used by Python 2.6+ to optimize the allocation
+            # of arrays in certain cases.  Pretend it doesn't exist.
             raise AttributeError("No __length_hint__ here!")
         return self.__mocker_act__("getattr", (name,))
 
