@@ -450,6 +450,44 @@ class MockerTestCaseTest(TestCase):
 
         self.assertEquals(stash, [[], (1, 2), (3, 4)])
 
+    def test_cleanup_wrapper_in__call__for_2_3(self):
+        version_info = sys.version_info
+        __call__ = unittest.TestCase.__call__
+        try:
+            sys.version_info = (2, 3, 5)
+            stash = []
+            def call(self, *args, **kwargs):
+                self.addCleanup(lambda: stash.append(True))
+            unittest.TestCase.__call__  = call
+            class MyTest(MockerTestCase):
+                def test_method(self):
+                    pass
+            MyTest("test_method")()
+            self.assertEquals(stash, [True])
+        finally:
+            unittest.TestCase.__call__ = __call__
+            sys.version_info = version_info
+
+    def test_cleanup_wrapper_in__call__for_2_4(self):
+        version_info = sys.version_info
+        __call__ = unittest.TestCase.__call__
+        try:
+            sys.version_info = (2, 4)
+            stash = []
+            def call(self, *args, **kwargs):
+                self.addCleanup(lambda: stash.append(True))
+            unittest.TestCase.__call__  = call
+            class MyTest(MockerTestCase):
+                def test_method(self):
+                    pass
+            MyTest("test_method")()
+            # Python 2.4+ handles cleanup in run(), registered inside
+            # MockerTestCase.__init__, so this should *not* work.
+            self.assertEquals(stash, [])
+        finally:
+            unittest.TestCase.__call__ = __call__
+            sys.version_info = version_info
+
     def test_twisted_trial_deferred_support(self):
         calls = []
         callbacks = []
