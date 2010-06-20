@@ -47,7 +47,7 @@ if sys.version_info < (2, 4):
 
 
 __all__ = ["Mocker", "expect", "IS", "CONTAINS", "IN", "MATCH",
-           "ANY", "ARGS", "KWARGS"]
+           "ANY", "ARGS", "KWARGS", "MockerTestCase"]
 
 
 __author__ = "Gustavo Niemeyer <gustavo@niemeyer.net>"

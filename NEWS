@@ -31,6 +31,8 @@
 
 - Some tweaks to prepare for Python 3.
 
+- Added MockerTestCase to __all__.
+
 
 0.10.1 (2007-12-11)
 ===================
