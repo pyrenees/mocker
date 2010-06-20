@@ -7,6 +7,10 @@
 - Unwrap bound methods on replace() and proxy(), as suggested
   by James Henstridge (#270782).
 
+- MockerTestCase.assertRaises() will now return the exception raised,
+  allowing further inspection of the raised exception (implemented by
+  Thomas Hervé) (#299930).
+
 - Fixed support for Python 2.6.  Mocking of iterators was broken in
   certain cases because, even though that's *not* documented, Python
   tries to use __length_hint__ in some cases.

@@ -824,6 +824,40 @@ class MockerTestCaseTest(TestCase):
         except AssertionError:
             self.fail("AssertionError shouldn't be raised")
 
+    def test_fail_unless_raises_succeeds(self):
+        class MyException(Exception):
+            pass
+        def f(*args):
+            raise MyException(*args)
+        error = self.test.failUnlessRaises(MyException, f, 1, "foo")
+        self.assertEquals(error.args, (1, "foo"))
+
+    def test_fail_unless_raises_error(self):
+        def f(*args):
+            return args
+        try:
+            self.test.failUnlessRaises(ValueError, f, 1, "foo")
+        except AssertionError, e:
+            self.assertEquals(
+                str(e),
+                "ValueError not raised ((1, 'foo') returned)")
+        else:
+            self.fail("AssertionError not raised")
+
+    def test_fail_unless_raises_other_exception(self):
+        class MyException1(Exception):
+            pass
+        class MyException2(Exception):
+            pass
+        def f(*args):
+            raise MyException2(*args)
+        try:
+            self.test.failUnlessRaises(MyException1, f, 1, "foo")
+        except MyException2:
+            pass
+        else:
+            self.fail("MyException2 not raised")
+
     def test_aliases(self):
         get_method = MockerTestCase.__dict__.get
 
@@ -859,6 +893,9 @@ class MockerTestCaseTest(TestCase):
 
         self.assertEquals(get_method("assertMethodsMatch"),
                           get_method("failUnlessMethodsMatch"))
+
+        self.assertEquals(get_method("assertRaises"),
+                          get_method("failUnlessRaises"))
 
     def test_twisted_trial_aliases(self):
         get_method = MockerTestCase.__dict__.get
