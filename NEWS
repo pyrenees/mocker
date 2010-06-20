@@ -23,8 +23,6 @@
   helps in cases where the expression can't result in a Mock
   instance (e.g. expect(iter(mock))) (#196388, #179072).
 
- "function" with an explicitly provided Mocker instance.
-
 - __nonzero__ should necessarily return a boolean value, so transform Mock
   results into True (#380024).
 
