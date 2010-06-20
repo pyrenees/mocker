@@ -46,7 +46,7 @@ if sys.version_info < (2, 4):
     from sets import Set as set # pragma: nocover
 
 
-__all__ = ["Mocker", "expect", "IS", "CONTAINS", "IN", "MATCH",
+__all__ = ["Mocker", "Expect", "expect", "IS", "CONTAINS", "IN", "MATCH",
            "ANY", "ARGS", "KWARGS", "MockerTestCase"]
 
 
@@ -84,6 +84,8 @@ class expect(object):
 
     """
 
+    __mocker__ = None
+
     def __init__(self, mock, attr=None):
         self._mock = mock
         self._attr = attr
@@ -92,8 +94,24 @@ class expect(object):
         return self.__class__(self._mock, attr)
 
     def __call__(self, *args, **kwargs):
-        getattr(self._mock.__mocker__, self._attr)(*args, **kwargs)
+        mocker = self.__mocker__
+        if not mocker:
+            mocker = self._mock.__mocker__
+        getattr(mocker, self._attr)(*args, **kwargs)
         return self
+
+
+def Expect(mocker):
+    """Create an expect() "function" using the given Mocker instance.
+
+    This helper allows defining an expect() "function" which works even
+    in trickier cases such as:
+
+        expect = Expect(mymocker)
+        expect(iter(mock)).generate([1, 2, 3])
+
+    """
+    return type("Expect", (expect,), {"__mocker__": mocker})
 
 
 # --------------------------------------------------------------------

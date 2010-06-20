@@ -8,6 +8,13 @@
   certain cases because, even though that's *not* documented, Python
   tries to use __length_hint__ in some cases.
 
+- Implemented Expect helper, which allows creating a new expect()
+  "function" with an explicitly provided Mocker instance.  This
+  helps in cases where the expression can't result in a Mock
+  instance (e.g. expect(iter(mock))) (#196388).
+
+ "function" with an explicitly provided Mocker instance.
+
 - __nonzero__ should necessarily return a boolean value, so transform Mock
   results into True (#380024).
 

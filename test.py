@@ -25,7 +25,7 @@ from mocker import \
     mock_returner_recorder, FunctionRunner, Orderer, SpecChecker, \
     spec_checker_recorder, match_params, ANY, IS, CONTAINS, IN, MATCH, ARGS, \
     KWARGS, MatchError, PathExecuter, ProxyReplacer, Patcher, Undefined, \
-    PatchedMethod, MockerTestCase, ReplayRestoreEvent, OnRestoreCaller
+    PatchedMethod, MockerTestCase, ReplayRestoreEvent, OnRestoreCaller, Expect
 
 
 class TestCase(unittest.TestCase):
@@ -271,6 +271,13 @@ class ExpectTest(TestCase):
         expect(obj.attr).result(123).result(42)
         self.mocker.replay()
         self.assertEquals(obj.attr, 42)
+
+    def test_explicit_expect_instance(self):
+        obj = self.mocker.mock()
+        myexpect = Expect(self.mocker)
+        myexpect(iter(obj)).generate([1, 2, 3]).count(1, 2)
+        self.mocker.replay()
+        self.assertEquals(list(obj), [1, 2, 3])
 
 
 class MockerTestCaseTest(TestCase):
