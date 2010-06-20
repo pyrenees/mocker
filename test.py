@@ -294,7 +294,12 @@ class MockerTestCaseTest(TestCase):
         self.assertEquals(type(self.test.mocker), Mocker)
 
     def test_has_expect(self):
-        self.assertTrue(self.test.expect is expect)
+        self.assertTrue(issubclass(self.test.expect, expect))
+
+    def test_expect_works_with_non_mocks(self):
+        # We must be using the Expect helper for this to work at all:
+        obj = self.test.mocker.mock()
+        self.test.expect(iter(obj)).generate([1,2,3])
 
     def test_attributes_are_the_same(self):
         class MyTest(MockerTestCase):

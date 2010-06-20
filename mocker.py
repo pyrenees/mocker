@@ -134,8 +134,6 @@ class MockerTestCase(unittest.TestCase):
     a few additional helper methods.
     """
 
-    expect = expect
-
     def __init__(self, methodName="runTest"):
         # So here is the trick: we take the real test method, wrap it on
         # a function that do the job we have to do, and insert it in the
@@ -184,6 +182,7 @@ class MockerTestCase(unittest.TestCase):
         self.run = run_wrapper
 
         self.mocker = Mocker()
+        self.expect = Expect(self.mocker)
 
         self.__cleanup_funcs = []
         self.__cleanup_paths = []
