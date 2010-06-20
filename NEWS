@@ -1,10 +1,32 @@
-0.11 (2010-XX-XX)
+0.15 (2010-XX-XX)
 =================
+
+- Changed license to BSD, since the PSF license only applies to Python
+  itself (#583335).
 
 - Fixed support for Python 2.6.  Mocking of iterators was broken in
   certain cases because, even though that's *not* documented, Python
   tries to use __length_hint__ in some cases.
 
+- __nonzero__ should necessarily return a boolean value, so transform Mock
+    results into True.
+
+- When setting the temporary __mocker_mock__ attribute, use Mocker.patch()
+  so that by the end of the mocking it's properly removed (by Thomas Herve).
+
+- Prevent the MockerTestCase base from leaving the mocker in replay mode
+  while the base class run() method runs, since this might have additional
+  logic which touches mocked content (time.time() was one case).  Thanks
+  to Thomas Herve for the initial debugging.
+
+- Ensure that the raised AttributeError exception on a patched object
+  exposes the real problem rather than a mocker error (by Duncan McGreggor).
+
+- When cleaning up on MockerTestCase, use reset() rather than restore(),
+  so that the same test case instance may be run more than once (like
+  Trial does).
+
+- Some tweaks to prepare for Python 3.
 
 
 0.10.1 (2007-12-11)
