@@ -150,6 +150,26 @@ class IntegrationTest(TestCase):
         self.assertEquals(obj.x(24), 42)
         self.assertEquals(calls, [24])
 
+    def test_call_with_object(self):
+        class C(object):
+            def method(self, a, b, c):
+                return "Running real method?"
+
+        calls = []
+        def func(*args, **kwargs):
+            calls.append(args)
+            calls.append(kwargs)
+            return 4
+
+        mock = self.mocker.patch(C)
+        mock.method(1, 2, c=3)
+        self.mocker.call(func, with_object=True)
+        self.mocker.replay()
+
+        obj = C()
+        self.assertEquals(obj.method(1, 2, c=3), 4) # Mocked.
+        self.assertEquals(calls, [(obj, 1, 2), {"c": 3}])
+
     def test_generate(self):
         obj = self.mocker.mock()
         obj.x(24)
@@ -1597,6 +1617,41 @@ class MockerTest(TestCase):
         event2 = self.mocker.add_event(Event())
         self.mocker.call(lambda *args, **kwargs: 123)
         self.assertEquals(event2.run(self.path), 123)
+
+    def test_call_with_object(self):
+        obj = object()
+        mock = self.mocker.proxy(obj)
+        action = Action("getattr", ("attr",), {}, Path(mock, root_object=456))
+        path = action.path + self.action
+        event1 = self.mocker.add_event(Event(path))
+        event2 = self.mocker.add_event(Event(path))
+        self.mocker.call(lambda *args, **kwargs: (args, kwargs),
+                         with_object=True)
+        self.assertEquals(event1.get_tasks(), [])
+        (task,) = event2.get_tasks()
+        self.assertEquals(type(task), FunctionRunner)
+        self.assertEquals(event2.run(event2.path), ((456, "attr"), {}))
+
+    def test_call_with_object_needs_proxy(self):
+        obj = object()
+        mock = self.mocker.proxy(obj)
+        action = Action("getattr", ("attr",), {}, Path(mock, root_object=456))
+        path = action.path + self.action
+        event1 = self.mocker.add_event(Event(path))
+        event2 = self.mocker.add_event(Event(path))
+        self.mocker.call(lambda *args, **kwargs: (args, kwargs),
+                         with_object=True)
+        self.assertEquals(event1.get_tasks(), [])
+        (task,) = event2.get_tasks()
+        self.assertEquals(type(task), FunctionRunner)
+        self.assertEquals(event2.run(event2.path), ((456, "attr"), {}))
+
+    def test_call_with_object_fails_on_unproxied(self):
+        mock = self.mocker.mock()
+        event1 = self.mocker.add_event(Event(Path(mock)))
+        event2 = self.mocker.add_event(Event(Path(mock)))
+        self.assertRaises(TypeError, self.mocker.call,
+                          lambda *args: None, with_object=True)
 
     def test_count(self):
         event1 = self.mocker.add_event(Event())
@@ -3327,6 +3382,13 @@ class FunctionRunnerTest(TestCase):
         task = FunctionRunner(lambda *args, **kwargs: repr((args, kwargs)))
         result = task.run(self.path)
         self.assertEquals(result, "((1, 2), {'c': 3})")
+
+    def test_run_with_object(self):
+        task = FunctionRunner(lambda *args, **kwargs: repr((args, kwargs)),
+                              with_root_object=True)
+        self.path.root_object = 4
+        result = task.run(self.path)
+        self.assertEquals(result, "((4, 1, 2), {'c': 3})")
 
 
 class PathExecuterTest(TestCase):

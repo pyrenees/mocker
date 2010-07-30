@@ -847,14 +847,17 @@ class MockerBase(object):
             raise exception
         self.call(raise_exception)
 
-    def call(self, func):
+    def call(self, func, with_object=False):
         """Make the last recorded event cause the given function to be called.
 
         @param func: Function to be called.
 
         The result of the function will be used as the event result.
         """
-        self._events[-1].add_task(FunctionRunner(func))
+        event = self._events[-1]
+        if with_object and event.path.root_object is None:
+            raise TypeError("Mock object isn't a proxy")
+        event.add_task(FunctionRunner(func, with_root_object=with_object))
 
     def count(self, min, max=False):
         """Last recorded event must be replayed between min and max times.
@@ -1845,12 +1848,16 @@ class FunctionRunner(Task):
     and the function result is also returned.
     """
 
-    def __init__(self, func):
+    def __init__(self, func, with_root_object=False):
         self._func = func
+        self._with_root_object = with_root_object
 
     def run(self, path):
         action = path.actions[-1]
-        return self._func(*action.args, **action.kwargs)
+        if self._with_root_object:
+            return self._func(path.root_object, *action.args, **action.kwargs)
+        else:
+            return self._func(*action.args, **action.kwargs)
 
 
 class PathExecuter(Task):

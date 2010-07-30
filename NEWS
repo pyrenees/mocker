@@ -1,3 +1,11 @@
+1.1 (2010-XX-XX)
+================
+
+- mocker.call() now supports a with_object argument.  If True, the called
+  function will receive the patched or proxied object so that its state
+  may be used or verified in checks.
+
+
 1.0 (2010-06-20)
 =================
 
