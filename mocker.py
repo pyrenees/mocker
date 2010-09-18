@@ -381,6 +381,9 @@ class MockerTestCase(unittest.TestCase):
     assertMethodsMatch = failUnlessMethodsMatch
     assertRaises = failUnlessRaises
 
+    # XXX Add assertIsInstance() and assertIsSubclass, and
+    #     extend assertRaises() with new logic from unittest.
+
     # The following are missing in Python < 2.4.
     assertTrue = unittest.TestCase.failUnless
     assertFalse = unittest.TestCase.failIf
@@ -754,7 +757,7 @@ class MockerBase(object):
     def act(self, path):
         """This is called by mock objects whenever something happens to them.
 
-        This method is part of the implementation between the mocker
+        This method is part of the interface between the mocker
         and mock objects.
         """
         if self._recording:
@@ -873,7 +876,7 @@ class MockerBase(object):
         for task in event.get_tasks():
             if isinstance(task, RunCounter):
                 event.remove_task(task)
-        event.add_task(RunCounter(min, max))
+        event.prepend_task(RunCounter(min, max))
 
     def is_ordering(self):
         """Return true if all events are being ordered.
@@ -1559,12 +1562,24 @@ class Event(object):
         self._has_run = False
 
     def add_task(self, task):
-        """Add a new task to this taks."""
+        """Add a new task to this task."""
         self._tasks.append(task)
+        return task
+
+    def prepend_task(self, task):
+        """Add a task at the front of the list."""
+        self._tasks.insert(0, task)
         return task
 
     def remove_task(self, task):
         self._tasks.remove(task)
+
+    def replace_task(self, old_task, new_task):
+        """Replace old_task with new_task, in the same position."""
+        for i in range(len(self._tasks)):
+            if self._tasks[i] is old_task:
+                self._tasks[i] = new_task
+        return new_task
 
     def get_tasks(self):
         return self._tasks[:]
@@ -1606,16 +1621,21 @@ class Event(object):
         result = None
         errors = []
         for task in self._tasks:
-            try:
-                task_result = task.run(path)
-            except AssertionError, e:
-                error = str(e)
-                if not error:
-                    raise RuntimeError("Empty error message from %r" % task)
-                errors.append(error)
-            else:
-                if task_result is not None:
-                    result = task_result
+            if not errors or not task.may_run_user_code():
+                try:
+                    task_result = task.run(path)
+                except AssertionError, e:
+                    error = str(e)
+                    if not error:
+                        raise RuntimeError("Empty error message from %r" % task)
+                    errors.append(error)
+                else:
+                    # XXX That's actually a bit weird.  What if a call() really
+                    # returned None?  This would improperly change the semantic
+                    # of this process without any good reason. Test that with two
+                    # call()s in sequence.
+                    if task_result is not None:
+                        result = task_result
         if errors:
             message = [str(self.path)]
             if str(path) != message[0]:
@@ -1699,6 +1719,15 @@ class Task(object):
     def may_run(self, path):
         """Return false if running this task would certainly raise an error."""
         return True
+
+    def may_run_user_code(self):
+        """Return true if there's a chance this task may run custom code.
+
+        Whenever errors are detected, running user code should be avoided,
+        because the situation is already known to be incorrect, and any
+        errors in the user code are side effects rather than the cause.
+        """
+        return False
 
     def run(self, path):
         """Perform the task item, considering that the given action happened.
@@ -1796,7 +1825,9 @@ class ImplicitRunCounter(RunCounter):
 def run_counter_recorder(mocker, event):
     """Any event may be repeated once, unless disabled by default."""
     if event.path.root_mock.__mocker_count__:
-        event.add_task(ImplicitRunCounter(1))
+        # Rather than appending the task, we prepend it so that the
+        # issue is raised before any other side-effects happen.
+        event.prepend_task(ImplicitRunCounter(1))
 
 Mocker.add_recorder(run_counter_recorder)
 
@@ -1851,6 +1882,9 @@ class FunctionRunner(Task):
     def __init__(self, func, with_root_object=False):
         self._func = func
         self._with_root_object = with_root_object
+
+    def may_run_user_code(self):
+        return True
 
     def run(self, path):
         action = path.actions[-1]
@@ -2149,7 +2183,8 @@ class PatchedMethod(object):
         # At least with __getattribute__, Python seems to use *both* the
         # descriptor API and also call the class attribute directly.  It
         # looks like an interpreter bug, or at least an undocumented
-        # inconsistency.
+        # inconsistency.  Coverage tests may show this uncovered, because
+        # it depends on the Python version.
         return self.__get__(obj)(*args, **kwargs)
 
 

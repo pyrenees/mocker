@@ -123,6 +123,22 @@ class IntegrationTest(TestCase):
         self.mocker.throw(ValueError)
         self.mocker.replay()
         self.assertRaises(ValueError, obj.x)
+        self.assertRaises(AssertionError, obj.x)
+
+    def test_throw_with_count(self):
+        """
+        This ensures that the count problem is reported correctly even when
+        using an explicit count.  If the ordering of problems isn't handled
+        properly, the thrown error might surface before the count one.
+        """
+        obj = self.mocker.mock()
+        obj.x()
+        self.mocker.throw(ValueError)
+        self.mocker.count(2)
+        self.mocker.replay()
+        self.assertRaises(ValueError, obj.x)
+        self.assertRaises(ValueError, obj.x)
+        self.assertRaises(AssertionError, obj.x)
 
     def test_call(self):
         calls = []
@@ -1650,21 +1666,41 @@ class MockerTest(TestCase):
                           lambda *args: None, with_object=True)
 
     def test_count(self):
+        class MyTask(Task):
+            pass
         event1 = self.mocker.add_event(Event())
         event2 = self.mocker.add_event(Event())
+        event2.add_task(MyTask())
+        event2.add_task(ImplicitRunCounter(1))
         event2.add_task(ImplicitRunCounter(1))
         self.mocker.count(2, 3)
         self.assertEquals(len(event1.get_tasks()), 0)
-        (task,) = event2.get_tasks()
-        self.assertEquals(type(task), RunCounter)
-        self.assertEquals(task.min, 2)
-        self.assertEquals(task.max, 3)
+        (task1, task2,) = event2.get_tasks()
+        self.assertEquals(type(task1), RunCounter)
+        self.assertEquals(type(task2), MyTask)
+        self.assertEquals(task1.min, 2)
+        self.assertEquals(task1.max, 3)
         self.mocker.count(4)
         self.assertEquals(len(event1.get_tasks()), 0)
-        (task,) = event2.get_tasks()
-        self.assertEquals(type(task), RunCounter)
-        self.assertEquals(task.min, 4)
-        self.assertEquals(task.max, 4)
+        (task1, task2) = event2.get_tasks()
+        self.assertEquals(type(task1), RunCounter)
+        self.assertEquals(type(task2), MyTask)
+        self.assertEquals(task1.min, 4)
+        self.assertEquals(task1.max, 4)
+
+    def test_count_without_implicit_counter(self):
+        class MyTask(Task):
+            pass
+        event1 = self.mocker.add_event(Event())
+        event2 = self.mocker.add_event(Event())
+        event2.add_task(MyTask())
+        self.mocker.count(2, 3)
+        self.assertEquals(len(event1.get_tasks()), 0)
+        (task1, task2,) = event2.get_tasks()
+        self.assertEquals(type(task1), RunCounter)
+        self.assertEquals(type(task2), MyTask)
+        self.assertEquals(task1.min, 2)
+        self.assertEquals(task1.max, 3)
 
     def test_order(self):
         mock1 = self.mocker.mock()
@@ -2828,9 +2864,18 @@ class EventTest(TestCase):
         self.assertEquals(event.path, path)
 
     def test_add_and_get_tasks(self):
-        task1 = self.event.add_task(Task())
-        task2 = self.event.add_task(Task())
+        task1 = Task()
+        task2 = Task()
+        self.assertEqual(self.event.add_task(task1), task1)
+        self.assertEqual(self.event.add_task(task2), task2)
         self.assertEquals(self.event.get_tasks(), [task1, task2])
+
+    def test_prepend_tasks(self):
+        task1 = Task()
+        task2 = Task()
+        self.assertEqual(self.event.prepend_task(task1), task1)
+        self.assertEqual(self.event.prepend_task(task2), task2)
+        self.assertEquals(self.event.get_tasks(), [task2, task1])
 
     def test_remove_task(self):
         task1 = self.event.add_task(Task())
@@ -2838,6 +2883,15 @@ class EventTest(TestCase):
         task3 = self.event.add_task(Task())
         self.event.remove_task(task2)
         self.assertEquals(self.event.get_tasks(), [task1, task3])
+
+    def test_replace_task(self):
+        task1 = self.event.add_task(Task())
+        task2 = self.event.add_task(Task())
+        task3 = self.event.add_task(Task())
+        task4 = Task()
+        task5 = self.event.replace_task(task2, task4)
+        self.assertEquals(self.event.get_tasks(), [task1, task4, task3])
+        self.assertTrue(task4 is task5)
 
     def test_default_matches(self):
         self.assertEquals(self.event.matches(None), False)
@@ -2892,7 +2946,7 @@ class EventTest(TestCase):
         self.assertEquals(calls, [42, 42, 42])
 
     def test_run_errors(self):
-        class MyTask(object):
+        class MyTask(Task):
             def __init__(self, id, failed):
                 self.id = id
                 self.failed = failed
@@ -2916,7 +2970,7 @@ class EventTest(TestCase):
 
     def test_run_errors_with_different_path_representation(self):
         """When the path representation isn't the same it's shown up."""
-        class MyTask(object):
+        class MyTask(Task):
             def __init__(self, id, failed):
                 self.id = id
                 self.failed = failed
@@ -2945,6 +2999,34 @@ class EventTest(TestCase):
                 raise AssertionError()
         self.event.add_task(MyTask())
         self.assertRaises(RuntimeError, self.event.run, 42)
+
+    def test_may_run_user_code(self):
+        """
+        Tasks that may run user code should be run if a prior failure has 
+        already been detected.
+        """
+        class MyTask(Task):
+            def __init__(self, id, user_code):
+                self.id = id
+                self.user_code = user_code
+            def may_run_user_code(self):
+                return self.user_code
+            def run(self, path):
+                raise AssertionError("%d failed" % self.id)
+        event = Event("i.am.a.path")
+        event.add_task(MyTask(1, False))
+        event.add_task(MyTask(2, True))
+        event.add_task(MyTask(3, False))
+
+        try:
+            event.run("i.am.a.path")
+        except AssertionError, e:
+            message = os.linesep.join(["i.am.a.path",
+                                       "- 1 failed",
+                                       "- 3 failed"])
+            self.assertEquals(str(e), message)
+        else:
+            self.fail("AssertionError not raised")
 
     def test_has_run(self):
         self.assertFalse(self.event.has_run())
@@ -3061,6 +3143,9 @@ class TaskTest(TestCase):
 
     def test_default_may_run(self):
         self.assertEquals(self.task.may_run(None), True)
+
+    def test_default_may_run_user_code(self):
+        self.assertEquals(self.task.may_run_user_code(), False)
 
     def test_default_run(self):
         self.assertEquals(self.task.run(None), None)
@@ -3211,11 +3296,15 @@ class RunCounterTest(TestCase):
         self.assertRaises(AssertionError, task.run, self.path)
 
     def test_recorder(self):
+        class MyTask(Task):
+            pass
+        self.event.add_task(MyTask())
         run_counter_recorder(self.mocker, self.event)
-        (task,) = self.event.get_tasks()
-        self.assertEquals(type(task), ImplicitRunCounter)
-        self.assertTrue(task.min == 1)
-        self.assertTrue(task.max == 1)
+        (task1, task2) = self.event.get_tasks()
+        self.assertEquals(type(task1), ImplicitRunCounter)
+        self.assertEquals(type(task2), MyTask)
+        self.assertTrue(task1.min == 1)
+        self.assertTrue(task1.max == 1)
 
     def test_recorder_wont_record_when_count_is_false(self):
         self.mock.__mocker_count__ = False
@@ -3373,6 +3462,10 @@ class FunctionRunnerTest(TestCase):
 
     def test_is_task(self):
         self.assertTrue(isinstance(FunctionRunner(None), Task))
+
+    def test_may_run_user_code(self):
+        task = FunctionRunner(None)
+        self.assertEquals(task.may_run_user_code(), True)
 
     def test_run(self):
         task = FunctionRunner(lambda *args, **kwargs: repr((args, kwargs)))
