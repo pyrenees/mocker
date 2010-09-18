@@ -1134,6 +1134,10 @@ class MockerTestCaseTest(TestCase):
         self.assertEquals(get_method("assertIsInstance"),
                           get_method("failUnlessIsInstance"))
 
+        self.assertEquals(get_method("assertIsNotInstance"),
+                          get_method("failIfIsInstance"))
+
+        # Poor choice in Python 2.7/3.2+.
         self.assertEquals(get_method("assertNotIsInstance"),
                           get_method("failIfIsInstance"))
 

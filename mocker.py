@@ -444,7 +444,8 @@ class MockerTestCase(unittest.TestCase):
     assertRaises = failUnlessRaises
     assertRaisesRegexp = failUnlessRaisesRegexp
     assertIsInstance = failUnlessIsInstance
-    assertNotIsInstance = failIfIsInstance
+    assertIsNotInstance = failIfIsInstance
+    assertNotIsInstance = failIfIsInstance # Poor choice in 2.7/3.2+.
 
     # The following are missing in Python < 2.4.
     assertTrue = unittest.TestCase.failUnless
