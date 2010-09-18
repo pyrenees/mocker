@@ -5,6 +5,17 @@
   function will receive the patched or proxied object so that its state
   may be used or verified in checks.
 
+- assertRaises() in MockerTestCase can now be used like Python 2.7 and 3.2,
+  as a context manager.  This enables contructs such as:
+
+      with self.assertRaises(Error):
+          raising_logic()
+
+- Added assertIsInstance() and assertNotIsInstance().
+
+- Fixed bug #634566, reported by Mark Hammond, where throw(Error) effects
+  might make the recorded action be accepted multiple times.
+
 
 1.0 (2010-06-20)
 =================

@@ -891,6 +891,103 @@ class MockerTestCaseTest(TestCase):
         else:
             self.fail("MyException2 not raised")
 
+    def test_fail_unless_raises_context_succeeds(self):
+        class MyException(Exception):
+            pass
+        with_manager = self.test.failUnlessRaises(MyException)
+        cm = with_manager.__enter__()
+        self.assertEquals(with_manager.__exit__(MyException,
+                                                MyException(1, "foo"), None),
+                          True)
+        self.assertEquals(cm.exception.args, (1, "foo"))
+
+    def test_fail_unless_raises_context_error(self):
+        with_manager = self.test.failUnlessRaises(ValueError)
+        cm = with_manager.__enter__()
+        try:
+            with_manager.__exit__(None, None, None)
+        except AssertionError, e:
+            self.assertEquals(str(e), "ValueError not raised")
+            self.assertEquals(cm.exception, None)
+        else:
+            self.fail("AssertionError not raised")
+
+    def test_fail_unless_raises_context_other_exception(self):
+        class MyException1(Exception):
+            pass
+        class MyException2(Exception):
+            pass
+        with_manager = self.test.failUnlessRaises(MyException1)
+        cm = with_manager.__enter__()
+        self.assertEquals(with_manager.__exit__(MyException2,
+                                                MyException2(), None),
+                          None)
+        self.assertTrue(isinstance(cm.exception, MyException2))
+
+    def test_fail_unless_is_instance_raises_on_mismatch(self):
+        class C(object):
+            def __repr__(self):
+                return "<C object>"
+        class D(object):
+            pass
+        obj = C()
+        try:
+            self.test.failUnlessIsInstance(obj, D)
+        except AssertionError, e:
+            self.assertEquals(str(e), "<C object> is not an instance of D")
+        else:
+            self.fail("AssertionError not raised")
+
+    def test_fail_unless_is_instance_uses_msg(self):
+        class C(object): pass
+        class D(object): pass
+        obj = C()
+        try:
+            self.test.failUnlessIsInstance(obj, D, "oops!")
+        except AssertionError, e:
+            self.assertEquals(str(e), "oops!")
+        else:
+            self.fail("AssertionError not raised")
+
+    def test_fail_unless_is_instance_succeeds(self):
+        class C(object): pass
+        obj = C()
+        try:
+            self.test.failUnlessIsInstance(obj, C)
+        except AssertionError:
+            self.fail("AssertionError shouldn't be raised")
+
+    def test_fail_if_is_instance_raises_on_mismatch(self):
+        class C(object):
+            def __repr__(self):
+                return "<C object>"
+        obj = C()
+        try:
+            self.test.failIfIsInstance(obj, C)
+        except AssertionError, e:
+            self.assertEquals(str(e), "<C object> is an instance of C")
+        else:
+            self.fail("AssertionError not raised")
+
+    def test_fail_if_is_instance_uses_msg(self):
+        class C(object): pass
+        obj = C()
+        try:
+            self.test.failIfIsInstance(obj, C, "oops!")
+        except AssertionError, e:
+            self.assertEquals(str(e), "oops!")
+        else:
+            self.fail("AssertionError not raised")
+
+    def test_fail_if_is_instance_succeeds(self):
+        class C(object): pass
+        class D(object): pass
+        obj = D()
+        try:
+            self.test.failIfIsInstance(obj, C)
+        except AssertionError:
+            self.fail("AssertionError shouldn't be raised")
+
     def test_aliases(self):
         get_method = MockerTestCase.__dict__.get
 
@@ -929,6 +1026,12 @@ class MockerTestCaseTest(TestCase):
 
         self.assertEquals(get_method("assertRaises"),
                           get_method("failUnlessRaises"))
+
+        self.assertEquals(get_method("assertIsInstance"),
+                          get_method("failUnlessIsInstance"))
+
+        self.assertEquals(get_method("assertNotIsInstance"),
+                          get_method("failIfIsInstance"))
 
     def test_twisted_trial_aliases(self):
         get_method = MockerTestCase.__dict__.get

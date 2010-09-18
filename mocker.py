@@ -52,7 +52,7 @@ __all__ = ["Mocker", "Expect", "expect", "IS", "CONTAINS", "IN", "MATCH",
 
 __author__ = "Gustavo Niemeyer <gustavo@niemeyer.net>"
 __license__ = "BSD"
-__version__ = "1.0"
+__version__ = "1.1"
 
 
 ERROR_PREFIX = "[Mocker] "
@@ -347,7 +347,7 @@ class MockerTestCase(unittest.TestCase):
                     (first.__name__, name, first_formatted,
                      second.__name__, name, second_formatted))
 
-    def failUnlessRaises(self, excClass, callableObj, *args, **kwargs):
+    def failUnlessRaises(self, excClass, *args, **kwargs):
         """
         Fail unless an exception of class excClass is thrown by callableObj
         when invoked with arguments args and keyword arguments kwargs. If a
@@ -355,18 +355,55 @@ class MockerTestCase(unittest.TestCase):
         test case will be deemed to have suffered an error, exactly as for an
         unexpected exception. It returns the exception instance if it matches
         the given exception class.
-        """
-        try:
-            result = callableObj(*args, **kwargs)
-        except excClass, e:
-            return e
-        else:
-            excName = excClass
-            if hasattr(excClass, "__name__"):
-                excName = excClass.__name__
-            raise self.failureException(
-                "%s not raised (%r returned)" % (excName, result))
 
+        This may also be used as a context manager when provided with a single
+        argument, as such:
+
+        with self.failUnlessRaises(ExcClass):
+            logic_which_should_raise()
+        """
+        excName = getattr(excClass, "__name__", str(excClass))
+        if args:
+            callableObj = args[0]
+            try:
+                result = callableObj(*args[1:], **kwargs)
+            except excClass, e:
+                return e
+            else:
+                raise self.failureException("%s not raised (%r returned)" %
+                                            (self.__class_name(excClass),
+                                             result))
+        else:
+            test = self
+            class AssertRaisesContextManager(object):
+                def __enter__(self):
+                    return self
+                def __exit__(self, type, value, traceback):
+                    self.exception = value
+                    if value is None:
+                        raise test.failureException("%s not raised" % excName)
+                    elif isinstance(value, excClass):
+                        return True
+            return AssertRaisesContextManager()
+
+    def __class_name(self, cls):
+        return getattr(cls, "__name__", str(cls))
+
+    def failUnlessIsInstance(self, obj, cls, msg=None):
+        """Assert that isinstance(obj, cls)."""
+        if not isinstance(obj, cls):
+            if msg is None:
+                msg = "%r is not an instance of %s" % \
+                      (obj, self.__class_name(cls))
+            raise self.failureException(msg)
+
+    def failIfIsInstance(self, obj, cls, msg=None):
+        """Assert that isinstance(obj, cls) is False."""
+        if isinstance(obj, cls):
+            if msg is None:
+                msg = "%r is an instance of %s" % \
+                      (obj, self.__class_name(cls))
+            raise self.failureException(msg)
 
     assertIs = failUnlessIs
     assertIsNot = failIfIs
@@ -380,9 +417,8 @@ class MockerTestCase(unittest.TestCase):
     assertNotApproximates = failIfApproximates
     assertMethodsMatch = failUnlessMethodsMatch
     assertRaises = failUnlessRaises
-
-    # XXX Add assertIsInstance() and assertIsSubclass, and
-    #     extend assertRaises() with new logic from unittest.
+    assertIsInstance = failUnlessIsInstance
+    assertNotIsInstance = failIfIsInstance
 
     # The following are missing in Python < 2.4.
     assertTrue = unittest.TestCase.failUnless
