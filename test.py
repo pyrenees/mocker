@@ -5,7 +5,6 @@ import inspect
 import shutil
 import sys
 import os
-import gc
 
 from types import ModuleType
 
@@ -216,7 +215,6 @@ class IntegrationTest(TestCase):
         expect(path.join(ARGS)).call(lambda *args: "-".join(args))
         expect(path.join("e", ARGS)).passthrough()
         self.mocker.replay()
-        import os
         self.assertEquals(os.path.join("a", "b", "c"), "a-b-c")
         self.assertNotEquals(os.path.join("e", "f", "g"), "e-f-g")
 
@@ -225,7 +223,6 @@ class IntegrationTest(TestCase):
         expect(path.isfile("unexistent")).result(True)
         expect(path.isfile(ANY)).passthrough().count(2)
         self.mocker.replay()
-        import os
         self.assertFalse(os.path.isfile("another-unexistent"))
         self.assertTrue(os.path.isfile("unexistent"))
         self.assertFalse(os.path.isfile("unexistent"))
@@ -1088,9 +1085,9 @@ class MockerTest(TestCase):
     def setUp(self):
         self.recorded = []
         self.mocker = CleanMocker()
-        def recorder(mocker, event):
+        def myrecorder(mocker, event):
             self.recorded.append((mocker, event))
-        self.mocker.add_recorder(recorder)
+        self.mocker.add_recorder(myrecorder)
 
         self.action = Action("getattr", ("attr",), {},
                              Path(Mock(self.mocker, name="mock")))
@@ -1382,7 +1379,6 @@ class MockerTest(TestCase):
         self.assertRaises(ImportError, self.mocker.proxy, "unexistent.module")
 
     def test_replace(self):
-        from os import path
         obj = object()
         proxy = self.mocker.replace(obj, spec=object, name="obj", count=False,
                                     passthrough=False)
@@ -1876,7 +1872,7 @@ class MockerTest(TestCase):
         event2 = self.mocker.add_event(Event(Path(mock)))
         self.assertRaises(TypeError, self.mocker.passthrough)
 
-    def test_passthrough(self):
+    def test_passthrough_with_result_callback(self):
         obj = object()
         mock = self.mocker.proxy(obj)
         event = self.mocker.add_event(Event(Path(mock, obj)))
@@ -3765,7 +3761,6 @@ class ProxyReplacerTest(TestCase):
 
     def test_install_on_submodule(self):
         from os import path
-        import os
         mock = Mock(self.mocker, object=path)
         task = ProxyReplacer(mock)
         task.replay()
@@ -3795,7 +3790,6 @@ class ProxyReplacerTest(TestCase):
 
     def test_uninstall_from_submodule(self):
         from os import path
-        import os
         mock = Mock(self.mocker, object=path)
         task = ProxyReplacer(mock)
         self.assertEquals(type(os.path), ModuleType)
