@@ -39,6 +39,7 @@ import shutil
 import types
 import sys
 import os
+import re
 import gc
 
 
@@ -362,17 +363,40 @@ class MockerTestCase(unittest.TestCase):
         with self.failUnlessRaises(ExcClass):
             logic_which_should_raise()
         """
-        excName = getattr(excClass, "__name__", str(excClass))
+        return self.failUnlessRaisesRegexp(excClass, None, *args, **kwargs)
+
+    def failUnlessRaisesRegexp(self, excClass, regexp, *args, **kwargs):
+        """
+        Fail unless an exception of class excClass is thrown by callableObj
+        when invoked with arguments args and keyword arguments kwargs, and
+        the str(error) value matches the provided regexp. If a different type
+        of exception is thrown, it will not be caught, and the test case will
+        be deemed to have suffered an error, exactly as for an unexpected
+        exception. It returns the exception instance if it matches the given
+        exception class.
+
+        This may also be used as a context manager when provided with a single
+        argument, as such:
+
+        with self.failUnlessRaisesRegexp(ExcClass, "something like.*happened"):
+            logic_which_should_raise()
+        """
+        def match_regexp(error):
+            error_str = str(error)
+            if regexp is not None and not re.search(regexp, error_str):
+                raise self.failureException("%r doesn't match %r" %
+                                            (error_str, regexp))
+        excName = self.__class_name(excClass)
         if args:
             callableObj = args[0]
             try:
                 result = callableObj(*args[1:], **kwargs)
             except excClass, e:
+                match_regexp(e)
                 return e
             else:
                 raise self.failureException("%s not raised (%r returned)" %
-                                            (self.__class_name(excClass),
-                                             result))
+                                            (excName, result))
         else:
             test = self
             class AssertRaisesContextManager(object):
@@ -383,6 +407,7 @@ class MockerTestCase(unittest.TestCase):
                     if value is None:
                         raise test.failureException("%s not raised" % excName)
                     elif isinstance(value, excClass):
+                        match_regexp(value)
                         return True
             return AssertRaisesContextManager()
 
@@ -417,6 +442,7 @@ class MockerTestCase(unittest.TestCase):
     assertNotApproximates = failIfApproximates
     assertMethodsMatch = failUnlessMethodsMatch
     assertRaises = failUnlessRaises
+    assertRaisesRegexp = failUnlessRaisesRegexp
     assertIsInstance = failUnlessIsInstance
     assertNotIsInstance = failIfIsInstance
 
@@ -890,6 +916,9 @@ class MockerBase(object):
         """Make the last recorded event cause the given function to be called.
 
         @param func: Function to be called.
+		@param with_object: If True, the called function will receive the
+		    patched or proxied object so that its state may be used or verified
+			in checks.
 
         The result of the function will be used as the event result.
         """

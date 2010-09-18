@@ -1,4 +1,4 @@
-1.1 (2010-XX-XX)
+1.1 (2010-09-18)
 ================
 
 - mocker.call() now supports a with_object argument.  If True, the called
@@ -10,6 +10,10 @@
 
       with self.assertRaises(Error):
           raising_logic()
+
+- Added assertRaisesRegexp() to MockerTestCase.  It works similarly to
+  the version in Python 2.7 and 3.2, except it will also return the error
+  found.  It also works as a context manager for with: statements.
 
 - Added assertIsInstance() and assertNotIsInstance().
 

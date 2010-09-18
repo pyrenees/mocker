@@ -924,6 +924,107 @@ class MockerTestCaseTest(TestCase):
                           None)
         self.assertTrue(isinstance(cm.exception, MyException2))
 
+    def test_fail_unless_raises_regexp_succeeds(self):
+        class MyException(Exception):
+            def __str__(self):
+                return "Error:" + str(self.args)
+        def f(*args):
+            raise MyException(*args)
+        error = self.test.failUnlessRaisesRegexp(MyException, "rror:.*foo",
+                                                 f, 1, "foo")
+        self.assertEquals(error.args, (1, "foo"))
+
+    def test_fail_unless_raises_regexp_doesnt_match(self):
+        class MyException(Exception):
+            def __str__(self):
+                return "Error: " + str(self.args)
+        def f(*args):
+            raise MyException(*args)
+        try:
+            self.test.failUnlessRaisesRegexp(MyException, "Foo:.*foo",
+                                             f, 1, "foo")
+        except AssertionError, e:
+            self.assertEquals(str(e),
+                              '"Error: (1, \'foo\')" doesn\'t match '
+                              '\'Foo:.*foo\'')
+        else:
+            self.fail("AssertionError not raised")
+
+    def test_fail_unless_raises_regexp_error(self):
+        def f(*args):
+            return args
+        try:
+            self.test.failUnlessRaisesRegexp(ValueError, "blah", f, 1, "foo")
+        except AssertionError, e:
+            self.assertEquals(
+                str(e),
+                "ValueError not raised ((1, 'foo') returned)")
+        else:
+            self.fail("AssertionError not raised")
+
+    def test_fail_unless_raises_regexp_other_exception(self):
+        class MyException1(Exception):
+            pass
+        class MyException2(Exception):
+            pass
+        def f(*args):
+            raise MyException2(*args)
+        try:
+            self.test.failUnlessRaisesRegexp(MyException1, "blah", f, 1, "foo")
+        except MyException2:
+            pass
+        else:
+            self.fail("MyException2 not raised")
+
+    def test_fail_unless_raises_regexp_context_succeeds(self):
+        class MyException(Exception):
+            def __str__(self):
+                return "Error: " + str(self.args)
+        with_manager = self.test.failUnlessRaisesRegexp(MyException, "rror.*f")
+        cm = with_manager.__enter__()
+        self.assertEquals(with_manager.__exit__(MyException,
+                                                MyException(1, "foo"), None),
+                          True)
+        self.assertEquals(cm.exception.args, (1, "foo"))
+
+    def test_fail_unless_raises_regexp_context_doesnt_match(self):
+        class MyException(Exception):
+            def __str__(self):
+                return "Error: " + str(self.args)
+        with_manager = self.test.failUnlessRaisesRegexp(MyException, "oo.*f")
+        cm = with_manager.__enter__()
+        try:
+            with_manager.__exit__(MyException, MyException(1, "foo"), None)
+        except AssertionError, e:
+            self.assertEquals(str(e),
+                              '"Error: (1, \'foo\')" doesn\'t match \'oo.*f\'')
+            self.assertEquals(cm.exception.args, (1, "foo"))
+        else:
+            self.fail("AssertionError not raised")
+
+    def test_fail_unless_raises_regexp_context_error(self):
+        with_manager = self.test.failUnlessRaisesRegexp(ValueError, "blah")
+        cm = with_manager.__enter__()
+        try:
+            with_manager.__exit__(None, None, None)
+        except AssertionError, e:
+            self.assertEquals(str(e), "ValueError not raised")
+            self.assertEquals(cm.exception, None)
+        else:
+            self.fail("AssertionError not raised")
+
+    def test_fail_unless_raises_regexp_context_other_exception(self):
+        class MyException1(Exception):
+            pass
+        class MyException2(Exception):
+            pass
+        with_manager = self.test.failUnlessRaisesRegexp(MyException1, "blah")
+        cm = with_manager.__enter__()
+        self.assertEquals(with_manager.__exit__(MyException2,
+                                                MyException2(), None),
+                          None)
+        self.assertTrue(isinstance(cm.exception, MyException2))
+
     def test_fail_unless_is_instance_raises_on_mismatch(self):
         class C(object):
             def __repr__(self):
@@ -1026,6 +1127,9 @@ class MockerTestCaseTest(TestCase):
 
         self.assertEquals(get_method("assertRaises"),
                           get_method("failUnlessRaises"))
+
+        self.assertEquals(get_method("assertRaisesRegexp"),
+                          get_method("failUnlessRaisesRegexp"))
 
         self.assertEquals(get_method("assertIsInstance"),
                           get_method("failUnlessIsInstance"))
