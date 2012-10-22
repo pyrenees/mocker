@@ -55,7 +55,7 @@ __credits__ = """
 Written by Gustavo Niemeyer <gustavo@niemeyer.net>
 Maintained by Zygmunt Krynicki <zygmunt.krynicki@linaro.org>"""
 __license__ = "BSD"
-__version__ = "1.1.1"
+__version__ = (1, 1, 1, 'dev', 0)
 
 
 ERROR_PREFIX = "[Mocker] "

@@ -1,1 +1,3 @@
-include mocker.py test.py setup.py setup.cfg MANIFEST.in LICENSE NEWS
+include LICENSE NEWS
+include test.py
+include versiontools_support.py
