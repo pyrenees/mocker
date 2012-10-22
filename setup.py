@@ -13,8 +13,8 @@ setup(
     maintainer="Zygmunt Krynicki",
     maintainer_email="zygmunt.krynicki@linaro.org",
     license="BSD",
-    url="http://labix.org/mocker",
-    download_url="https://launchpad.net/mocker/+download",
+    url="https://github.com/zyga/mocker",
+    download_url="https://github.com/zyga/mocker/downloads",
     py_modules=["mocker"],
     classifiers=[
         "Development Status :: 4 - Beta",
