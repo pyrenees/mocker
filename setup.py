@@ -3,9 +3,9 @@ import os
 import re
 
 try:
-    from setuptools import setup, Extension
+    from setuptools import setup
 except ImportError:
-    from distutils.core import setup, Extension
+    from distutils.core import setup
 
 
 if os.path.isfile("MANIFEST"):
@@ -18,7 +18,9 @@ version = re.search('__version__ = "([^"]+)"',
 setup(
     name="mocker",
     version=version,
-    description="Graceful platform for test doubles in Python (mocks, stubs, fakes, and dummies).",
+    description=(
+        "Graceful platform for test doubles in Python (mocks, stubs, fakes,"
+        " and dummies)."),
     author="Gustavo Niemeyer",
     author_email="gustavo@niemeyer.net",
     maintainer="Zygmunt Krynicki",
