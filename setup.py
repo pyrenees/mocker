@@ -35,4 +35,5 @@ setup(
         "Topic :: Software Development :: Testing",
         "Topic :: Software Development :: Libraries :: Python Modules",
     ],
+    test_suite="test",
 )
