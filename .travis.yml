@@ -3,5 +3,5 @@ python:
   - 2.5
   - 2.6
   - 2.7
-script:  python setup.py test
-
+  - 3.5
+script: python setup.py test

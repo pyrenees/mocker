@@ -31,7 +31,10 @@ LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
 NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 """
-import __builtin__
+try:
+    import builtins
+except ImportError:
+    import __builtin__
 import tempfile
 import unittest
 import inspect
@@ -42,6 +45,15 @@ import os
 import re
 import gc
 
+if sys.version_info >= (3,):
+    basestring = str
+    iteritems = lambda d: d.items()
+    itervalues = lambda d: d.values()
+    MAX_INT = sys.maxsize
+else:
+    iteritems = lambda d: d.iteritems()
+    itervalues = lambda d: d.itervalues()
+    MAX_INT = sys.maxint
 
 if sys.version_info < (2, 4):
     from sets import Set as set # pragma: nocover
@@ -331,8 +343,14 @@ class MockerTestCase(unittest.TestCase):
         the real class being simulated.
         """
         first_methods = dict(inspect.getmembers(first, inspect.ismethod))
+        if sys.version_info >= (3,):
+            first_methods.update(dict(inspect.getmembers(
+                    first, inspect.isfunction)))
         second_methods = dict(inspect.getmembers(second, inspect.ismethod))
-        for name, first_method in first_methods.iteritems():
+        if sys.version_info >= (3,):
+            second_methods.update(dict(inspect.getmembers(
+                    second, inspect.isfunction)))
+        for name, first_method in iteritems(first_methods):
             first_argspec = inspect.getargspec(first_method)
             first_formatted = inspect.formatargspec(*first_argspec)
 
@@ -393,7 +411,7 @@ class MockerTestCase(unittest.TestCase):
             callableObj = args[0]
             try:
                 result = callableObj(*args[1:], **kwargs)
-            except excClass, e:
+            except excClass as e:
                 match_regexp(e)
                 return e
             else:
@@ -474,7 +492,20 @@ class classinstancemethod(object):
         return bound_method
 
 
-class MockerBase(object):
+class __metaclass__(type):
+    def __init__(self, name, bases, dict):
+        # Make independent lists on each subclass, inheriting from parent.
+        self._recorders = list(getattr(self, "_recorders", ()))
+
+
+if sys.version_info >= (3,):
+    exec("class MockerMeta(object, metaclass=__metaclass__): pass")
+else:
+    class MockerMeta(object):
+        __metaclass__ = __metaclass__
+
+
+class MockerBase(MockerMeta):
     """Controller of mock objects.
 
     A mocker instance is used to command recording and replay of
@@ -529,11 +560,6 @@ class MockerBase(object):
 
     # For convenience only.
     on = expect
-
-    class __metaclass__(type):
-        def __init__(self, name, bases, dict):
-            # Make independent lists on each subclass, inheriting from parent.
-            self._recorders = list(getattr(self, "_recorders", ()))
 
     def __init__(self):
         self._recorders = self._recorders[:]
@@ -631,7 +657,7 @@ class MockerBase(object):
         for event in self._events:
             try:
                 event.verify()
-            except AssertionError, e:
+            except AssertionError as e:
                 error = str(e)
                 if not error:
                     raise RuntimeError("Empty error message from %r"
@@ -725,11 +751,14 @@ class MockerBase(object):
                     for attr in attr_stack:
                         object = getattr(object, attr)
                     break
-        if isinstance(object, types.UnboundMethodType):
+        if (sys.version_info < (3,) and
+                isinstance(object, types.UnboundMethodType)):
             object = object.im_func
         if spec is True:
             spec = object
-        if type is True:
+        if type is True and sys.version_info >= (3,):
+            type = builtins.type(object)
+        elif type is True:
             type = __builtin__.type(object)
         return Mock(self, spec=spec, type=type, object=object,
                     name=name, count=count, passthrough=passthrough)
@@ -1182,7 +1211,7 @@ class Mock(object):
             path.root_object = object
         try:
             return self.__mocker__.act(path)
-        except MatchError, exception:
+        except MatchError as exception:
             root_mock = path.root_mock
             if (path.root_object is not None and
                 root_mock.__mocker_passthrough__):
@@ -1190,7 +1219,7 @@ class Mock(object):
             # Reinstantiate to show raise statement on traceback, and
             # also to make the traceback shown shorter.
             raise MatchError(str(exception))
-        except AssertionError, e:
+        except AssertionError as e:
             lines = str(e).splitlines()
             message = [ERROR_PREFIX + "Unmet expectation:", ""]
             message.append("=> " + lines.pop(0))
@@ -1199,7 +1228,7 @@ class Mock(object):
             raise AssertionError(os.linesep.join(message))
 
     def __getattribute__(self, name):
-        if name.startswith("__mocker_"):
+        if name == "__name__" or name.startswith("__mocker_"):
             return super(Mock, self).__getattribute__(name)
         if name == "__class__":
             if self.__mocker__.is_recording() or self.__mocker_type__ is None:
@@ -1240,7 +1269,7 @@ class Mock(object):
         # something that doesn't offer them.
         try:
             result = self.__mocker_act__("len")
-        except MatchError, e:
+        except MatchError as e:
             raise AttributeError(str(e))
         if type(result) is Mock:
             return 0
@@ -1249,11 +1278,20 @@ class Mock(object):
     def __nonzero__(self):
         try:
             result = self.__mocker_act__("nonzero")
-        except MatchError, e:
+        except MatchError as e:
             return True
         if type(result) is Mock:
             return True
         return result
+
+    def __bool__(self):
+        try:
+            result = self.__mocker_act__("bool")
+        except MatchError as e:
+            return True
+        if type(result) is Mock:
+            return True
+        return bool(result)
 
     def __iter__(self):
         # XXX On py3k, when next() becomes __next__(), we'll be able
@@ -1275,13 +1313,13 @@ def find_object_name(obj, depth=0):
         frame = sys._getframe(depth+1)
     except:
         return None
-    for name, frame_obj in frame.f_locals.iteritems():
+    for name, frame_obj in iteritems(frame.f_locals):
         if frame_obj is obj:
             return name
     self = frame.f_locals.get("self")
     if self is not None:
         try:
-            items = list(self.__dict__.iteritems())
+            items = list(iteritems(self.__dict__))
         except:
             pass
         else:
@@ -1354,6 +1392,8 @@ class Action(object):
             elif kind == "len":
                 result = len(object)
             elif kind == "nonzero":
+                result = bool(object)
+            elif kind == "bool":
                 result = bool(object)
             elif kind == "iter":
                 result = iter(object)
@@ -1430,7 +1470,7 @@ class Path(object):
                 result = "del %s.%s" % (result, action.args[0])
             elif action.kind == "call":
                 args = [repr(x) for x in action.args]
-                items = list(action.kwargs.iteritems())
+                items = list(iteritems(action.kwargs))
                 items.sort()
                 for pair in items:
                     args.append("%s=%r" % pair)
@@ -1447,6 +1487,8 @@ class Path(object):
             elif action.kind == "len":
                 result = "len(%s)" % result
             elif action.kind == "nonzero":
+                result = "bool(%s)" % result
+            elif action.kind == "bool":
                 result = "bool(%s)" % result
             elif action.kind == "iter":
                 result = "iter(%s)" % result
@@ -1550,7 +1592,7 @@ def match_params(args1, kwargs1, args2, kwargs2):
 
     # Either we have the same number of kwargs, or unknown keywords are
     # accepted (KWARGS was used), so check just the ones in kwargs1.
-    for key, arg1 in kwargs1.iteritems():
+    for key, arg1 in iteritems(kwargs1):
         if key not in kwargs2:
             return False
         arg2 = kwargs2[key]
@@ -1692,7 +1734,7 @@ class Event(object):
             if not errors or not task.may_run_user_code():
                 try:
                     task_result = task.run(path)
-                except AssertionError, e:
+                except AssertionError as e:
                     error = str(e)
                     if not error:
                         raise RuntimeError("Empty error message from %r" % task)
@@ -1739,7 +1781,7 @@ class Event(object):
         for task in self._tasks:
             try:
                 task.verify()
-            except AssertionError, e:
+            except AssertionError as e:
                 error = str(e)
                 if not error:
                     raise RuntimeError("Empty error message from %r" % task)
@@ -1858,7 +1900,7 @@ class RunCounter(Task):
     def __init__(self, min, max=False):
         self.min = min
         if max is None:
-            self.max = sys.maxint
+            self.max = MAX_INT
         elif max is False:
             self.max = min
         else:
@@ -2034,6 +2076,11 @@ class SpecChecker(Task):
                     self._defaults = ()
                 if type(method) is type(self.run):
                     self._args = self._args[1:]
+                elif (sys.version_info >= (3,) and len(self._args) and
+                        self._args[0] == 'self'):
+                    # XXX: Cannot distinct unbound methods from normal
+                    # functions in Python 3
+                    self._args = self._args[1:]
 
     def get_method(self):
         return self._method
@@ -2115,7 +2162,7 @@ def global_replace(remove, install):
     for referrer in gc.get_referrers(remove):
         if (type(referrer) is dict and
             referrer.get("__mocker_replace__", True)):
-            for key, value in list(referrer.iteritems()):
+            for key, value in list(iteritems(referrer)):
                 if value is remove:
                     referrer[key] = install
 
@@ -2187,7 +2234,7 @@ class Patcher(Task):
         for kind in self._monitored:
             attr = self._get_kind_attr(kind)
             seen = set()
-            for obj in self._monitored[kind].itervalues():
+            for obj in itervalues(self._monitored[kind]):
                 cls = type(obj)
                 if issubclass(cls, type):
                     cls = obj
@@ -2201,7 +2248,7 @@ class Patcher(Task):
                                     self.execute)
 
     def restore(self):
-        for obj, attr, original in self._patched.itervalues():
+        for obj, attr, original in itervalues(self._patched):
             if original is Undefined:
                 delattr(obj, attr)
             else:
@@ -2212,7 +2259,13 @@ class Patcher(Task):
         attr = self._get_kind_attr(action.kind)
         unpatched = self.get_unpatched_attr(object, attr)
         try:
-            return unpatched(*action.args, **action.kwargs)
+            if sys.version_info >= (3,):
+                try:
+                    return unpatched(*action.args, **action.kwargs)
+                except TypeError:
+                    return unpatched(object, *action.args, **action.kwargs)
+            else:
+                return unpatched(*action.args, **action.kwargs)
         except AttributeError:
             type, value, traceback = sys.exc_info()
             if action.kind == "getattr":
@@ -2226,7 +2279,10 @@ class Patcher(Task):
                     pass
                 else:
                     return __getattr__(*action.args, **action.kwargs)
-            raise type, value, traceback
+            if sys.version_info >= (3,):
+                raise value.with_traceback(traceback)
+            else:
+                exec("raise type, value, traceback")
 
 
 class PatchedMethod(object):
